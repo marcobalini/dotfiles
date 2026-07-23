@@ -3,6 +3,11 @@
 # Exit immediately if any command fails
 set -e
 
+# Ensure script runs with root privileges
+if [ "$(id -u)" -ne 0 ]; then
+    exec sudo "$0" "$@"
+fi
+
 # --- USAGE ---
 usage() {
     echo "Usage: $0 <name>"

@@ -6,8 +6,8 @@ PKG_TYPE=rpm
 while [[ "$1" == -* ]]; do
     case "$1" in
         -u|--upload) UPLOAD=true; shift ;;
-        --rpm) PKG_TYPE=rpm; shift ;;
-        --deb) PKG_TYPE=deb; shift ;;
+        -r|--rpm) PKG_TYPE=rpm; shift ;;
+        -d|--deb) PKG_TYPE=deb; shift ;;
         --deb32) PKG_TYPE=deb32; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac

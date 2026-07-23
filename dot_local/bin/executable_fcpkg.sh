@@ -17,10 +17,6 @@ done
 TARBALL="$1"
 SCRIPTS_REPO="${2:-$HOME/_/utility}"
 
-# Auto-promote deb → deb32 when the tarball name signals a 32-bit build
-if [ "$PKG_TYPE" = "deb" ] && [[ "$TARBALL" == *32bit* ]]; then
-    PKG_TYPE=deb32
-fi
 WORKDIR=$(realpath "${WORKDIR:-.}")
 
 cd "$WORKDIR" || exit 1

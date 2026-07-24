@@ -33,8 +33,8 @@ fi
 DEFAULT_PASS="faircom"
 
 # --- NETWORK/BOOT TIMING CONFIG (override via env) ---
-IP_WAIT_RETRIES="${IP_WAIT_RETRIES:-60}"      # 60 * 3s = 180s
-IP_WAIT_SLEEP_SECS="${IP_WAIT_SLEEP_SECS:-3}"
+IP_WAIT_RETRIES="${IP_WAIT_RETRIES:-20}"      # 20 * 2s = 40s
+IP_WAIT_SLEEP_SECS="${IP_WAIT_SLEEP_SECS:-2}"
 
 # --- REPO CONFIG (override via environment variables) ---
 REPO_BASE_URL="${REPO_BASE_URL:-http://vmftest.eu.faircom.com:8081/repository}"
@@ -331,9 +331,9 @@ ALIASES_EOF
 if [ "$BACKEND" = "tart" ]; then
     wait_for_ip() {
         echo -n "--- Waiting for IP "
-        MAX_RETRIES=40; COUNT=0; VM_IP=""
+        MAX_RETRIES="$IP_WAIT_RETRIES"; COUNT=0; VM_IP=""
         while [ -z "$VM_IP" ] && [ $COUNT -lt $MAX_RETRIES ]; do
-            sleep 3
+            sleep "$IP_WAIT_SLEEP_SECS"
             VM_IP=$(tart ip "$VM_NAME" 2>/dev/null)
             if [ -z "$VM_IP" ]; then
                 ((COUNT++))

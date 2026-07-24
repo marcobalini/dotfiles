@@ -38,16 +38,16 @@ IP_WAIT_SLEEP_SECS="${IP_WAIT_SLEEP_SECS:-2}"
 
 # --- REPO CONFIG (override via environment variables) ---
 REPO_BASE_URL="${REPO_BASE_URL:-http://vmftest.eu.faircom.com:8081/repository}"
-RPM_REPO_PATH="${RPM_REPO_PATH:-faircom-rpm}"
-RPM_REPO_ID="${RPM_REPO_ID:-faircom-rpm}"
+RPM_REPO_PATH="${RPM_REPO_PATH:-yum}"
+RPM_REPO_ID="${RPM_REPO_ID:-yum}"
 RPM_REPO_NAME="${RPM_REPO_NAME:-FairCom Internal RPM Repository}"
 
-DEB_REPO_CURRENT_PATH="${DEB_REPO_CURRENT_PATH:-faircom-deb-current}"
-DEB_REPO_LEGACY_PATH="${DEB_REPO_LEGACY_PATH:-faircom-deb-legacy}"
+DEB_REPO_CURRENT_PATH="${DEB_REPO_CURRENT_PATH:-deb-current}"
+DEB_REPO_LEGACY_PATH="${DEB_REPO_LEGACY_PATH:-deb-legacy}"
 DEB_SUITE_CURRENT="${DEB_SUITE_CURRENT:-current}"
 DEB_SUITE_LEGACY="${DEB_SUITE_LEGACY:-legacy}"
 
-KEYS_REPO_PATH="${KEYS_REPO_PATH:-faircom-keys}"
+KEYS_REPO_PATH="${KEYS_REPO_PATH:-keys}"
 KEYS_FILE_NAME="${KEYS_FILE_NAME:-faircom-packages.gpg.pub}"
 
 # --- USAGE MENU ---

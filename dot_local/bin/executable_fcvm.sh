@@ -783,8 +783,12 @@ elif [ "$SYNC_ONLY" = true ]; then
         sudo virsh start "$VM_NAME" 2>/dev/null || true
         sudo virsh resume "$VM_NAME" 2>/dev/null || true
     elif [ "$BACKEND" = "tart" ]; then
-        # Handled by RESTORE_VM
-        :
+        echo "--- [SYNC] Reverting $VM_NAME to $BASE_VM and updating packages ---"
+        if ! tart get "$BASE_VM" &>/dev/null; then echo "ERROR: Base clone '$BASE_VM' not found. Run -b first."; exit 1; fi
+        tart stop "$VM_NAME" 2>/dev/null || true
+        tart delete "$VM_NAME" 2>/dev/null || true
+        tart clone "$BASE_VM" "$VM_NAME" || { echo "ERROR: Failed to restore from base clone."; exit 1; }
+        echo "--- Restore complete ---"
     fi
 elif [ "$RESTORE_VM" = true ]; then
     if [ "$BACKEND" = "libvirt" ]; then

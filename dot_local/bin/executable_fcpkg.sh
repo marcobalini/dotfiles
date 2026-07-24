@@ -48,12 +48,19 @@ PKG_OUTDIR="$WORKDIR/$(dirname "$TARBALL")"
 
 if build_pkg; then
     if [ "$UPLOAD" = true ]; then
+        pkg_files_to_upload=()
         for pkg_file in "$PKG_OUTDIR"/*."$PKG_EXT"; do
             [ -e "$pkg_file" ] || continue
             [ "$pkg_file" -nt "$WORKDIR/.pkg_build_start" ] || continue
-            echo "Uploading: $(basename "$pkg_file")"
-            "$SCRIPTS_REPO"/packaging/package/upload-faircom-pkg.sh "$pkg_file"
+            echo "Queued for upload: $(basename "$pkg_file")"
+            pkg_files_to_upload+=("$pkg_file")
         done
+
+        if ((${#pkg_files_to_upload[@]} > 0)); then
+            "$SCRIPTS_REPO"/packaging/package/upload-faircom-pkg.sh "${pkg_files_to_upload[@]}"
+        else
+            echo "No new packages found to upload."
+        fi
     else
         echo "Build succeeded. Skipping upload (use -u or --upload to upload)."
     fi

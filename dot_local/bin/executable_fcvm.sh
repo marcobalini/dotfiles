@@ -841,6 +841,13 @@ if [ "$BACKEND" = "libvirt" ]; then
         MAX_SSH_RETRIES=30; SSH_COUNT=0
         while ! nc -z -w 1 "$VM_IP" 22 >/dev/null 2>&1 && [ $SSH_COUNT -lt $MAX_SSH_RETRIES ]; do echo -n "."; sleep 2; ((SSH_COUNT++)); done
         echo " Ready!"
+
+        if [ "$BUILD_VM" = true ]; then
+            echo "--- Saving Initial Clean Snapshot ---"
+            sudo virsh snapshot-delete "$VM_NAME" "$SNAPSHOT_NAME" 2>/dev/null || true
+            sudo virsh snapshot-create-as "$VM_NAME" "$SNAPSHOT_NAME" >/dev/null \
+                || { echo "WARNING: Failed to create snapshot '$SNAPSHOT_NAME'. -r and -s may fail."; }
+        fi
     fi
 
 elif [ "$BACKEND" = "tart" ]; then

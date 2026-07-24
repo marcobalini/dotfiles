@@ -454,6 +454,8 @@ elif [ "$BUILD_VM" = true ]; then
         sudo virsh destroy "$VM_NAME" 2>/dev/null
         sudo virsh undefine "$VM_NAME" --remove-all-storage --snapshots-metadata 2>/dev/null
 
+        BUILD_IMAGE="$DISTRO"
+
         # --- BUILDER ARGUMENTS ---
         BUILDER_ARGS=(
             "--format" "qcow2" 
@@ -462,11 +464,34 @@ elif [ "$BUILD_VM" = true ]; then
             "--network"
         )
 
-        if ! virt-builder -l | grep -qw "^${DISTRO}"; then
-            echo "--- ${DISTRO} not natively found, trying local templates... ---"
-            LOCAL_ARCH=$(virt-builder -l --source "file:///opt/virt-templates/index" --no-check-signature 2>/dev/null | awk -v dist="$DISTRO" '$1 == dist {print $2}')
+        NATIVE_DISTRO_MATCH=false
+        NATIVE_DISTRO_ARCH_MATCH=false
+        if virt-builder -l 2>/dev/null | awk -v dist="$DISTRO" '$1 == dist { found=1 } END { exit !found }'; then
+            NATIVE_DISTRO_MATCH=true
+        fi
+        if virt-builder -l 2>/dev/null | awk -v dist="$DISTRO" -v arch="$ARCH" '$1 == dist && $2 == arch { found=1 } END { exit !found }'; then
+            NATIVE_DISTRO_ARCH_MATCH=true
+        fi
+
+        # Require distro+arch when non-default arch is requested.
+        # For x86_64, allow distro-only matches in case virt-builder list omits/varies the arch column.
+        if [ "$NATIVE_DISTRO_MATCH" != true ] || { [ "$ARCH" != "x86_64" ] && [ "$NATIVE_DISTRO_ARCH_MATCH" != true ]; }; then
+            echo "--- ${DISTRO}/${ARCH} not natively found, trying local templates... ---"
+            SEARCH_ARCH="$ARCH"
+            [ "$SEARCH_ARCH" = "i386" ] && SEARCH_ARCH="i686"
+            LOCAL_TEMPLATE=$(virt-builder -l --source "file:///opt/virt-templates/index" --no-check-signature 2>/dev/null | awk -v dist="$DISTRO" -v arch="$SEARCH_ARCH" '
+                $1 == dist && $2 == arch {print $1; exit}
+                arch == "i686" && $1 == (dist "-i386") && $2 == "i686" {print $1; exit}
+            ')
+            if [ -n "$LOCAL_TEMPLATE" ]; then
+                LOCAL_ARCH=$(virt-builder -l --source "file:///opt/virt-templates/index" --no-check-signature 2>/dev/null | awk -v tpl="$LOCAL_TEMPLATE" '$1 == tpl {print $2; exit}')
+            elif [ "$ARCH" = "x86_64" ]; then
+                LOCAL_TEMPLATE=$(virt-builder -l --source "file:///opt/virt-templates/index" --no-check-signature 2>/dev/null | awk -v dist="$DISTRO" '$1 == dist {print $1; exit}')
+                [ -n "$LOCAL_TEMPLATE" ] && LOCAL_ARCH=$(virt-builder -l --source "file:///opt/virt-templates/index" --no-check-signature 2>/dev/null | awk -v tpl="$LOCAL_TEMPLATE" '$1 == tpl {print $2; exit}')
+            fi
             BUILDER_ARGS+=("--source" "file:///opt/virt-templates/index" "--no-check-signature")
             if [ -n "$LOCAL_ARCH" ]; then
+                BUILD_IMAGE="$LOCAL_TEMPLATE"
                 ARCH="$LOCAL_ARCH"
                 BUILDER_ARGS+=("--arch" "${LOCAL_ARCH}")
             elif [[ "${ARCH}" != "x86_64" ]]; then
@@ -537,7 +562,7 @@ elif [ "$BUILD_VM" = true ]; then
             fi
         fi
 
-        sudo virt-builder "$DISTRO" \
+        sudo virt-builder "$BUILD_IMAGE" \
             "${BUILDER_ARGS[@]}" \
             --install qemu-guest-agent,openssh-server,tree,vim,sudo \
             --run-command "systemctl enable qemu-guest-agent" \

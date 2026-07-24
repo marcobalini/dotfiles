@@ -26,7 +26,6 @@ cd "$WORKDIR" || exit 1
 prep_scripts() {
     cp -u "$SCRIPTS_REPO"/packaging/package/faircom.service "$WORKDIR/"
     cp -u "$SCRIPTS_REPO"/packaging/package/build-faircom-pkg.sh "$WORKDIR/"
-    cp -u "$SCRIPTS_REPO"/packaging/package/upload-faircom-pkg.sh "$WORKDIR/"
     if [ "$PKG_TYPE" = "rpm" ]; then
         cp -u "$SCRIPTS_REPO"/packaging/package/faircom.spec "$WORKDIR/"
         sed -i 's/# addFilter("W: unstripped-binary-or-object")/addFilter("W: unstripped-binary-or-object")/' "$WORKDIR/build-faircom-pkg.sh"
@@ -53,7 +52,7 @@ if build_pkg; then
             [ -e "$pkg_file" ] || continue
             [ "$pkg_file" -nt "$WORKDIR/.pkg_build_start" ] || continue
             echo "Uploading: $(basename "$pkg_file")"
-            "$WORKDIR/upload-faircom-pkg.sh" "$pkg_file"
+            "$SCRIPTS_REPO"/packaging/package/upload-faircom-pkg.sh "$pkg_file"
         done
     else
         echo "Build succeeded. Skipping upload (use -u or --upload to upload)."

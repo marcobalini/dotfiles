@@ -46,7 +46,6 @@ DEB_REPO_CURRENT_PATH="${DEB_REPO_CURRENT_PATH:-faircom-deb-current}"
 DEB_REPO_LEGACY_PATH="${DEB_REPO_LEGACY_PATH:-faircom-deb-legacy}"
 DEB_SUITE_CURRENT="${DEB_SUITE_CURRENT:-current}"
 DEB_SUITE_LEGACY="${DEB_SUITE_LEGACY:-legacy}"
-DEB_COMPONENT="${DEB_COMPONENT:-main}"
 
 KEYS_REPO_PATH="${KEYS_REPO_PATH:-faircom-keys}"
 KEYS_FILE_NAME="${KEYS_FILE_NAME:-faircom-packages.gpg.pub}"
@@ -530,9 +529,9 @@ elif [ "$BUILD_VM" = true ]; then
                 else
                     case "$DEBIAN_VER" in 9) _DEB_ARCHIVE_CODENAME="stretch" ;; 10) _DEB_ARCHIVE_CODENAME="buster" ;; *) _DEB_ARCHIVE_CODENAME="" ;; esac
                     if [ -n "$_DEB_ARCHIVE_CODENAME" ]; then
-                        BUILDER_ARGS+=( "--run-command" "set -e; printf '%s\n' 'Acquire::Check-Valid-Until \"false\";' 'Acquire::AllowInsecureRepositories \"true\";' 'Acquire::AllowDowngradeToInsecureRepositories \"true\";' > /etc/apt/apt.conf.d/99archive-no-valid-until; printf '%s\n' 'deb [trusted=yes] http://archive.debian.org/debian ${_DEB_ARCHIVE_CODENAME} main contrib non-free' 'deb [trusted=yes] http://archive.debian.org/debian-security ${_DEB_ARCHIVE_CODENAME}/updates main contrib non-free' > /etc/apt/sources.list; apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-unauthenticated curl gnupg ca-certificates; mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d; curl -s '${REPO_BASE_URL}/${KEYS_REPO_PATH}/${KEYS_FILE_NAME}' | gpg --dearmor -o /etc/apt/trusted.gpg.d/faircom-packages.gpg; chmod 0644 /etc/apt/trusted.gpg.d/faircom-packages.gpg; _A=\"${ARCH}\"; [ \"\$_A\" = \"x86_64\" ] && _A=\"amd64\"; [ \"\$_A\" = \"i686\" ] && _A=\"i386\"; printf '%s\n' \"deb [arch=\$_A signed-by=/etc/apt/trusted.gpg.d/faircom-packages.gpg] ${REPO_BASE_URL}/${DEB_REPO_PATH} ${DEB_REPO_SUITE} ${DEB_COMPONENT}\" > /etc/apt/sources.list.d/faircom.list; apt-get update" )
+                        BUILDER_ARGS+=( "--run-command" "set -e; printf '%s\n' 'Acquire::Check-Valid-Until \"false\";' 'Acquire::AllowInsecureRepositories \"true\";' 'Acquire::AllowDowngradeToInsecureRepositories \"true\";' > /etc/apt/apt.conf.d/99archive-no-valid-until; printf '%s\n' 'deb [trusted=yes] http://archive.debian.org/debian ${_DEB_ARCHIVE_CODENAME} main contrib non-free' 'deb [trusted=yes] http://archive.debian.org/debian-security ${_DEB_ARCHIVE_CODENAME}/updates main contrib non-free' > /etc/apt/sources.list; apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-unauthenticated curl gnupg ca-certificates; mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d; curl -s '${REPO_BASE_URL}/${KEYS_REPO_PATH}/${KEYS_FILE_NAME}' | gpg --dearmor -o /etc/apt/trusted.gpg.d/faircom-packages.gpg; chmod 0644 /etc/apt/trusted.gpg.d/faircom-packages.gpg; _A=\"${ARCH}\"; [ \"\$_A\" = \"x86_64\" ] && _A=\"amd64\"; [ \"\$_A\" = \"i686\" ] && _A=\"i386\"; printf '%s\n' \"deb [arch=\$_A signed-by=/etc/apt/trusted.gpg.d/faircom-packages.gpg] ${REPO_BASE_URL}/${DEB_REPO_PATH} ${DEB_REPO_SUITE}\" > /etc/apt/sources.list.d/faircom.list; apt-get update" )
                     else
-                        BUILDER_ARGS+=( "--run-command" "set -e; apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y curl gnupg ca-certificates; mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d; curl -s '${REPO_BASE_URL}/${KEYS_REPO_PATH}/${KEYS_FILE_NAME}' | gpg --dearmor -o /etc/apt/trusted.gpg.d/faircom-packages.gpg; chmod 0644 /etc/apt/trusted.gpg.d/faircom-packages.gpg; _A=\"${ARCH}\"; [ \"\$_A\" = \"x86_64\" ] && _A=\"amd64\"; [ \"\$_A\" = \"i686\" ] && _A=\"i386\"; printf '%s\n' \"deb [arch=\$_A signed-by=/etc/apt/trusted.gpg.d/faircom-packages.gpg] ${REPO_BASE_URL}/${DEB_REPO_PATH} ${DEB_REPO_SUITE} ${DEB_COMPONENT}\" > /etc/apt/sources.list.d/faircom.list; apt-get update" )
+                        BUILDER_ARGS+=( "--run-command" "set -e; apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y curl gnupg ca-certificates; mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d; curl -s '${REPO_BASE_URL}/${KEYS_REPO_PATH}/${KEYS_FILE_NAME}' | gpg --dearmor -o /etc/apt/trusted.gpg.d/faircom-packages.gpg; chmod 0644 /etc/apt/trusted.gpg.d/faircom-packages.gpg; _A=\"${ARCH}\"; [ \"\$_A\" = \"x86_64\" ] && _A=\"amd64\"; [ \"\$_A\" = \"i686\" ] && _A=\"i386\"; printf '%s\n' \"deb [arch=\$_A signed-by=/etc/apt/trusted.gpg.d/faircom-packages.gpg] ${REPO_BASE_URL}/${DEB_REPO_PATH} ${DEB_REPO_SUITE}\" > /etc/apt/sources.list.d/faircom.list; apt-get update" )
                     fi
                 fi
             fi
@@ -738,7 +737,7 @@ _A="$(dpkg --print-architecture 2>/dev/null || uname -m)"
 [ "\$_A" = "i686" ] && _A="i386"
 [ -z "\$_A" ] && _A="amd64"
 
-echo "deb [arch=\$_A signed-by=/etc/apt/trusted.gpg.d/faircom-packages.gpg] ${REPO_BASE_URL}/${DEB_REPO_PATH} ${DEB_REPO_SUITE} ${DEB_COMPONENT}" | sudo tee /etc/apt/sources.list.d/faircom.list >/dev/null
+echo "deb [arch=\$_A signed-by=/etc/apt/trusted.gpg.d/faircom-packages.gpg] ${REPO_BASE_URL}/${DEB_REPO_PATH} ${DEB_REPO_SUITE}" | sudo tee /etc/apt/sources.list.d/faircom.list >/dev/null
 if [ ! -s /etc/apt/sources.list.d/faircom.list ]; then
     echo "WARNING: faircom.list is empty after write." >&2
 fi

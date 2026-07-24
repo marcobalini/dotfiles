@@ -497,10 +497,10 @@ elif [ "$BUILD_VM" = true ]; then
         if [ "$PKG_EXT" = "rpm" ]; then
             if [[ "$DISTRO" == *"fedora"* ]]; then
                 FVER="${DISTRO#fedora-}"
-                if [ "$FVER" -ge 34 ] 2>/dev/null; then REPO_RELEASE="9"; elif [ "$FVER" -ge 28 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
+                if [ "$FVER" -ge 34 ] 2>/dev/null; then REPO_RELEASE="8"; elif [ "$FVER" -ge 28 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
             else
                 DISTRO_VER=$(echo "$DISTRO" | grep -oP '\d+' | head -n1)
-                if [ "${DISTRO_VER:-9}" -ge 9 ] 2>/dev/null; then REPO_RELEASE="9"; elif [ "${DISTRO_VER:-9}" -ge 8 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
+                if [ "${DISTRO_VER:-9}" -ge 9 ] 2>/dev/null; then REPO_RELEASE="8"; elif [ "${DISTRO_VER:-9}" -ge 8 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
             fi
             BUILDER_ARGS+=( "--run-command" "mkdir -p /etc/yum.repos.d/ && printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo" )
         elif [ "$PKG_EXT" = "deb" ]; then

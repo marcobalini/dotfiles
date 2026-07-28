@@ -526,7 +526,9 @@ elif [ "$BUILD_VM" = true ]; then
                 DISTRO_VER=$(echo "$DISTRO" | grep -oP '\d+' | head -n1)
                 if [ "${DISTRO_VER:-9}" -ge 9 ] 2>/dev/null; then REPO_RELEASE="8"; elif [ "${DISTRO_VER:-9}" -ge 8 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
             fi
-            BUILDER_ARGS+=( "--run-command" "mkdir -p /etc/yum.repos.d/ && printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo" )
+            if [ "$ENABLE_REPO_SETUP" = "true" ]; then
+                BUILDER_ARGS+=( "--run-command" "mkdir -p /etc/yum.repos.d/ && printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo" )
+            fi
         elif [ "$PKG_EXT" = "deb" ]; then
             if [[ "$DISTRO" == "ubuntu-"* ]]; then
                 UBUNTU_MAJOR="${DISTRO#ubuntu-}"; UBUNTU_MAJOR="${UBUNTU_MAJOR%%.*}"
@@ -681,14 +683,16 @@ sudo ssh-keygen -A 2>/dev/null || true
 sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd 2>/dev/null || true
 
 $(if [ "$PKG_EXT" = "rpm" ]; then
-    if [[ "$DISTRO" == *"fedora"* ]]; then
-        FVER="${DISTRO##*-}"; FVER="${DISTRO##*:}"
-        if [ "$FVER" -ge 40 ] 2>/dev/null; then REPO_RELEASE="10"; elif [ "$FVER" -ge 34 ] 2>/dev/null; then REPO_RELEASE="9"; elif [ "$FVER" -ge 28 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
-    else
-        REPO_RELEASE="\\\$releasever"
+    if [ "$ENABLE_REPO_SETUP" = "true" ]; then
+        if [[ "$DISTRO" == *"fedora"* ]]; then
+            FVER="${DISTRO##*-}"; FVER="${DISTRO##*:}"
+            if [ "$FVER" -ge 40 ] 2>/dev/null; then REPO_RELEASE="10"; elif [ "$FVER" -ge 34 ] 2>/dev/null; then REPO_RELEASE="9"; elif [ "$FVER" -ge 28 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
+        else
+            REPO_RELEASE="\\\$releasever"
+        fi
+        echo "sudo mkdir -p /etc/yum.repos.d/"
+        echo "sudo bash -c \"printf '[faircom-rpm]\nname=FairCom Internal RPM Repository\nbaseurl=http://vmftest.eu.faircom.com:8081/repository/faircom-rpm/el${REPO_RELEASE}/\\\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo\""
     fi
-    echo "sudo mkdir -p /etc/yum.repos.d/"
-    echo "sudo bash -c \"printf '[faircom-rpm]\nname=FairCom Internal RPM Repository\nbaseurl=http://vmftest.eu.faircom.com:8081/repository/faircom-rpm/el${REPO_RELEASE}/\\\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo\""
 elif [ "$PKG_EXT" = "deb" ]; then
     if [[ "$DISTRO" == "ubuntu-"* ]]; then
         UBUNTU_MAJOR="${DISTRO#ubuntu-}"; UBUNTU_MAJOR="${UBUNTU_MAJOR%%.*}"

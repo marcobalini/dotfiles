@@ -38,7 +38,7 @@ IP_WAIT_SLEEP_SECS="${IP_WAIT_SLEEP_SECS:-2}"
 
 # --- REPO CONFIG (override via environment variables) ---
 REPO_BASE_URL="${REPO_BASE_URL:-http://vmftest.eu.faircom.com:8081/repository}"
-RPM_REPO_PATH="${RPM_REPO_PATH:-yum}"
+RPM_REPO_PATH="${RPM_REPO_PATH:-yum-test}"
 RPM_REPO_ID="${RPM_REPO_ID:-yum}"
 RPM_REPO_NAME="${RPM_REPO_NAME:-FairCom Internal RPM Repository}"
 

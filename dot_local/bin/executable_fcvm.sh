@@ -516,6 +516,19 @@ elif [ "$BUILD_VM" = true ]; then
 
         if [[ "$DISTRO" == "debian-"* ]]; then
             BUILDER_ARGS+=( "--firstboot-command" "IFACE=\$(ls /sys/class/net | grep -v lo | head -n1); if [ -n \"\$IFACE\" ]; then (echo auto \$IFACE; echo iface \$IFACE inet dhcp) > /etc/network/interfaces.d/auto && (ifup \$IFACE || systemctl restart networking); fi" )
+            # Configure archived repos for EOL Debian versions (9, 10, etc.)
+            _DEBIAN_VER="${DISTRO#debian-}"; _DEBIAN_VER="${_DEBIAN_VER%%-*}"
+            if [ "$_DEBIAN_VER" -le 10 ] 2>/dev/null; then
+                case "$_DEBIAN_VER" in
+                    9) _DEB_ARCHIVE_CODENAME="stretch" ;;
+                    10) _DEB_ARCHIVE_CODENAME="buster" ;;
+                    *) _DEB_ARCHIVE_CODENAME="" ;;
+                esac
+                if [ -n "$_DEB_ARCHIVE_CODENAME" ]; then
+                    BUILDER_ARGS+=( "--run-command" "printf '%s\n' 'Acquire::Check-Valid-Until \"false\";' 'Acquire::AllowInsecureRepositories \"true\";' 'Acquire::AllowDowngradeToInsecureRepositories \"true\";' > /etc/apt/apt.conf.d/99archive-no-valid-until" )
+                    BUILDER_ARGS+=( "--run-command" "printf '%s\n' 'deb [trusted=yes] http://archive.debian.org/debian ${_DEB_ARCHIVE_CODENAME} main contrib non-free' 'deb [trusted=yes] http://archive.debian.org/debian-security ${_DEB_ARCHIVE_CODENAME}/updates main contrib non-free' > /etc/apt/sources.list" )
+                fi
+            fi
         fi
 
         if [ "$PKG_EXT" = "rpm" ]; then

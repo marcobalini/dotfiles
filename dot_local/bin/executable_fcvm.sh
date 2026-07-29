@@ -60,6 +60,7 @@ usage() {
     echo "  -a <pkg>     Auto-install <pkg> (Restores, Syncs, Installs, and Exits)"
     echo "  -d <dir>     Directory containing packages (default: current directory)"
     echo "  -e           Enable internal faircom repo setup during VM build (Linux only)"
+    echo "  -i <script>  Inject bash script to VM (no auto-execution, Linux only, stackable with -e)"
     echo "  -32          Build/test 32-bit VM (Linux only, sets architecture to i686)"
     echo "  -m <arch>    CPU architecture (default: x86_64, e.g., i686, Linux only)"
     echo "  -l           List all ${USER_NAME} VMs and their state (Linux only)"
@@ -109,6 +110,7 @@ RESTORE_VM=false
 REMOVE_VM=false
 LIST_VMS=false
 ENABLE_REPO_SETUP=false
+INJECT_SCRIPT=""
 AUTO_INSTALL_PKG=""
 ARCH="x86_64"
 
@@ -120,6 +122,7 @@ while [[ $# -gt 0 ]]; do
     -a) AUTO_INSTALL_PKG="$2"; RESTORE_VM=true; SYNC_ONLY=true; shift 2 ;;
     -d) PKGS_DIR="$2"; shift 2 ;;
     -e) ENABLE_REPO_SETUP=true; shift ;;
+    -i) INJECT_SCRIPT="$2"; shift 2 ;;
     -32) ARCH="i686"; shift ;;
     -m|--arch) ARCH="$2"; shift 2 ;;
     -l) LIST_VMS=true; shift ;;
@@ -193,6 +196,19 @@ if [ "$LIST_VMS" = true ]; then
         tart list | grep -E "NAME.*SIZE|-fctech" || true
     fi
     exit 0
+fi
+
+# --- CUSTOM SCRIPT VALIDATION ---
+if [ -n "$INJECT_SCRIPT" ]; then
+    if [ ! -f "$INJECT_SCRIPT" ]; then
+        echo "ERROR: Script not found: $INJECT_SCRIPT"
+        exit 1
+    fi
+    if [ ! -r "$INJECT_SCRIPT" ]; then
+        echo "ERROR: Script is not readable: $INJECT_SCRIPT"
+        exit 1
+    fi
+    INJECT_SCRIPT=$(realpath "$INJECT_SCRIPT")
 fi
 
 # --- PASSWORD PROMPT (Only for Build) ---
@@ -327,6 +343,25 @@ ALIASES_EOF
 )
 
 # --- BACKEND SPECIFIC HELPERS ---
+
+# Execute custom repo setup script post-build
+inject_script() {
+    local vm_ip="$1"
+    local script_name=$(basename "$INJECT_SCRIPT")
+    
+    if [ -z "$INJECT_SCRIPT" ] || [ ! -f "$INJECT_SCRIPT" ]; then
+        return 0
+    fi
+    
+    echo "--- Injecting script: $script_name ---"
+    vm_scp "$INJECT_SCRIPT" "$USER_NAME@$vm_ip:/home/$USER_NAME/$script_name" || {
+        echo "ERROR: Failed to copy script to VM."
+        return 1
+    }
+    vm_ssh "$USER_NAME@$vm_ip" "chmod +x /home/$USER_NAME/$script_name" || true
+    echo "--- Script injected to /home/$USER_NAME/$script_name ---"
+    return 0
+}
 
 if [ "$BACKEND" = "tart" ]; then
     wait_for_ip() {
@@ -611,6 +646,25 @@ elif [ "$BUILD_VM" = true ]; then
             --graphics none \
             --noautoconsole || { echo "ERROR: virt-install failed."; exit 1; }
         
+        # Inject script if provided
+        if [ -n "$INJECT_SCRIPT" ]; then
+            echo "--- Waiting for libvirt VM to get IP and SSH to be ready ---"
+            VM_IP=""
+            for i in {1..30}; do
+                VM_IP=$(sudo virsh domifaddr "$VM_NAME" 2>/dev/null | grep ipv4 | awk '{print $4}' | cut -d/ -f1 | head -n1)
+                if [ -n "$VM_IP" ]; then
+                    break
+                fi
+                sleep 1
+            done
+            if [ -z "$VM_IP" ]; then
+                echo "WARNING: Could not determine VM IP. Skipping script injection."
+            else
+                echo "--- VM IP: $VM_IP ---"
+                inject_script "$VM_IP"
+            fi
+        fi
+        
     elif [ "$BACKEND" = "tart" ]; then
         echo "--- [BUILD] Building $VM_NAME from $OCI_IMAGE ---"
 
@@ -804,6 +858,11 @@ EOF
         echo "$FC_ALIASES" | vm_ssh "$USER_NAME@$VM_IP" "cat >> ~/.bashrc"
 
         inject_packages
+
+        # Inject script if provided
+        if [ -n "$INJECT_SCRIPT" ]; then
+            inject_script "$VM_IP"
+        fi
 
         # Tart stop is abrupt; flush filesystem buffers to persist recent writes.
         vm_ssh "$USER_NAME@$VM_IP" "sudo sync" || true

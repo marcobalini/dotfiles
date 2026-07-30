@@ -159,7 +159,8 @@ def main():
     )
     
     general_group = parser.add_argument_group("General options")
-    general_group.add_argument("--base-dir", "-b", type=Path, default=Path("~/_").expanduser(), help="Base directory for repositories (default: ~/_).")
+    default_base = Path("D:/_") if sys.platform == "win32" else Path("~/_").expanduser()
+    general_group.add_argument("--base-dir", "-b", type=Path, default=default_base, help="Base directory for repositories (default: D:\\_ on Windows, ~/_ on Linux/macOS).")
     general_group.add_argument("--no-sync", "--skip-sync", action="store_true", help="Skip syncing (git clone/pull) repositories.")
     general_group.add_argument("--no-build", "--skip-build", action="store_true", help="Skip running conan build (full compilation) after configure.")
     general_group.add_argument("--msbuild", action="store_true", help="Run msbuild on the generated solution after configure (Windows only).")

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -46,6 +47,7 @@ def run(cmd, cwd):
 
 
 def sync_repos(base):
+    base.mkdir(parents=True, exist_ok=True)
     for name, url, _, _ in REPOS:
         repo_path = base / name
         if repo_path.is_dir():
@@ -92,14 +94,20 @@ def get_conan_opts(name, profile, args, base):
         "-c", f"user.fc:install_dir={install_dir}",
     ]
 
-    if sys.platform != "win32":
+    if sys.platform == "win32":
         opts.extend([
-            "-s", "compiler=gcc",
-            "-s", "compiler.version=4.8",
-            "-s", "compiler.cppstd=11",
-            "-s", "compiler.libcxx=libstdc++",
-            "-s", "arch=x86_64",
-            "-s", "os=Linux",
+            "-pr:h=os/windows/64bit/vs2022/Debug",
+            "-pr:b=os/windows/64bit/vs2022/Debug",
+        ])
+    elif sys.platform == "darwin":
+        opts.extend([
+            "-pr:h=os/macos/osx14_00_arm64/Debug",
+            "-pr:b=os/macos/osx14_00_arm64/Debug",
+        ])
+    else:
+        opts.extend([
+            "-pr:h=os/linux/64bit/Debug",
+            "-pr:b=os/linux/64bit/Debug",
         ])
 
     if name == "kernel":
@@ -159,7 +167,8 @@ def main():
     )
     
     general_group = parser.add_argument_group("General options")
-    general_group.add_argument("--base-dir", "-b", type=Path, default=Path("~/_").expanduser(), help="Base directory for repositories (default: ~/_).")
+    default_base = Path("D:/_") if sys.platform == "win32" else Path("~/_").expanduser()
+    general_group.add_argument("--base-dir", "-b", type=Path, default=default_base, help="Base directory for repositories (default: D:\\_ on Windows, ~/_ on Linux/macOS).")
     general_group.add_argument("--no-sync", "--skip-sync", action="store_true", help="Skip syncing (git clone/pull) repositories.")
     general_group.add_argument("--no-build", "--skip-build", action="store_true", help="Skip running conan build (full compilation) after configure.")
     general_group.add_argument("--msbuild", action="store_true", help="Run msbuild on the generated solution after configure (Windows only).")

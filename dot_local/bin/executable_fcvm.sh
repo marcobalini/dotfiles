@@ -650,18 +650,33 @@ elif [ "$BUILD_VM" = true ]; then
         if [ -n "$INJECT_SCRIPT" ]; then
             echo "--- Waiting for libvirt VM to get IP and SSH to be ready ---"
             VM_IP=""
-            for i in {1..30}; do
+            for i in {1..60}; do
                 VM_IP=$(sudo virsh domifaddr "$VM_NAME" 2>/dev/null | grep ipv4 | awk '{print $4}' | cut -d/ -f1 | head -n1)
                 if [ -n "$VM_IP" ]; then
                     break
                 fi
-                sleep 1
+                sleep 2
             done
             if [ -z "$VM_IP" ]; then
                 echo "WARNING: Could not determine VM IP. Skipping script injection."
             else
                 echo "--- VM IP: $VM_IP ---"
-                inject_script "$VM_IP"
+                echo -n "--- Probing SSH port "
+                _SSH_READY=false
+                for i in {1..40}; do
+                    if nc -z -w 2 "$VM_IP" 22 >/dev/null 2>&1; then
+                        _SSH_READY=true
+                        break
+                    fi
+                    echo -n "."
+                    sleep 3
+                done
+                echo ""
+                if [ "$_SSH_READY" = false ]; then
+                    echo "WARNING: SSH not ready on $VM_IP. Skipping script injection."
+                else
+                    inject_script "$VM_IP"
+                fi
             fi
         fi
         

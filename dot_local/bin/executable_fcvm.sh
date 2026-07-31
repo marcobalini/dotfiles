@@ -49,6 +49,7 @@ DEB_SUITE_LEGACY="${DEB_SUITE_LEGACY:-legacy}"
 
 KEYS_REPO_PATH="${KEYS_REPO_PATH:-keys}"
 KEYS_FILE_NAME="${KEYS_FILE_NAME:-faircom-packages.gpg.pub}"
+MAX_EL_RELEASE="${MAX_EL_RELEASE:-7}"  # highest elN bucket on the yum repo; bump as new ones ship
 
 # --- USAGE MENU ---
 usage() {
@@ -569,11 +570,12 @@ elif [ "$BUILD_VM" = true ]; then
         if [ "$PKG_EXT" = "rpm" ]; then
             if [[ "$DISTRO" == *"fedora"* ]]; then
                 FVER="${DISTRO#fedora-}"
-                if [ "$FVER" -ge 34 ] 2>/dev/null; then REPO_RELEASE="8"; elif [ "$FVER" -ge 28 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
+                if [ "$FVER" -ge 40 ] 2>/dev/null; then REPO_RELEASE="10"; elif [ "$FVER" -ge 34 ] 2>/dev/null; then REPO_RELEASE="9"; elif [ "$FVER" -ge 28 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
             else
                 DISTRO_VER=$(echo "$DISTRO" | grep -oP '\d+' | head -n1)
-                if [ "${DISTRO_VER:-9}" -ge 9 ] 2>/dev/null; then REPO_RELEASE="8"; elif [ "${DISTRO_VER:-9}" -ge 8 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
+                if [ "${DISTRO_VER:-7}" -ge 10 ] 2>/dev/null; then REPO_RELEASE="10"; elif [ "${DISTRO_VER:-7}" -ge 9 ] 2>/dev/null; then REPO_RELEASE="9"; elif [ "${DISTRO_VER:-7}" -ge 8 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
             fi
+            [ "$REPO_RELEASE" -gt "$MAX_EL_RELEASE" ] 2>/dev/null && REPO_RELEASE="$MAX_EL_RELEASE"
             if [ "$ENABLE_REPO_SETUP" = "true" ]; then
                 BUILDER_ARGS+=( "--run-command" "mkdir -p /etc/yum.repos.d/ && printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo" )
             fi
@@ -769,6 +771,7 @@ $(if [ "$PKG_EXT" = "rpm" ]; then
         if [[ "$DISTRO" == *"fedora"* ]]; then
             FVER="${DISTRO##*-}"; FVER="${DISTRO##*:}"
             if [ "$FVER" -ge 40 ] 2>/dev/null; then REPO_RELEASE="10"; elif [ "$FVER" -ge 34 ] 2>/dev/null; then REPO_RELEASE="9"; elif [ "$FVER" -ge 28 ] 2>/dev/null; then REPO_RELEASE="8"; else REPO_RELEASE="7"; fi
+            [ "$REPO_RELEASE" -gt "$MAX_EL_RELEASE" ] 2>/dev/null && REPO_RELEASE="$MAX_EL_RELEASE"
         else
             REPO_RELEASE="\\\$releasever"
         fi

@@ -533,6 +533,12 @@ elif [ "$BUILD_VM" = true ]; then
             elif [[ "${ARCH}" != "x86_64" ]]; then
                 BUILDER_ARGS+=("--arch" "${ARCH}")
             fi
+        elif [ "$ARCH" != "x86_64" ]; then
+            # Native distro+arch match found, but virt-builder still needs --arch to
+            # disambiguate between same-named entries for different architectures
+            # (e.g. "fedora-30" lists both an i686 and an x86_64 entry); without it,
+            # virt-builder silently defaults to the host's arch (x86_64).
+            BUILDER_ARGS+=("--arch" "${ARCH}")
         fi
 
         if [[ "$DISTRO" == "centos-7"* ]] || [[ "$DISTRO" == "centos-8" ]] || [[ "$DISTRO" == "centosstream-8" ]]; then
@@ -638,6 +644,10 @@ elif [ "$BUILD_VM" = true ]; then
         fi
 
         inject_packages
+        # i686 guests need NX explicitly: libvirt's default 'qemu32' model lacks it,
+        # and modern kernels (Fedora/RHEL) refuse to boot without NX support.
+        VIRT_INSTALL_CPU_ARGS=()
+        [ "$ARCH" = "i686" ] && VIRT_INSTALL_CPU_ARGS=(--cpu "qemu32,+nx")
         sudo virt-install \
             --name "$VM_NAME" \
             --arch "$ARCH" \
@@ -646,6 +656,7 @@ elif [ "$BUILD_VM" = true ]; then
             --import --disk path="$DISK_PATH",format=qcow2 \
             --network default \
             --graphics none \
+            "${VIRT_INSTALL_CPU_ARGS[@]}" \
             --noautoconsole || { echo "ERROR: virt-install failed."; exit 1; }
         
         # Inject script if provided

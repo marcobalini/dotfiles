@@ -32,8 +32,9 @@ def setup_environment(base):
             os.environ["JAVA_HOME"] = jdk_home
             print(f"Set JAVA_HOME={jdk_home}", flush=True)
 
-        dotnet_dir = deps_dir / "dotnet"
-        if dotnet_dir.is_dir():
+        dotnet_dirs = [d for d in deps_dir.glob("dotnet-sdk-*") if d.is_dir() and not d.name.endswith(".tar.gz")]
+        if dotnet_dirs:
+            dotnet_dir = str(sorted(dotnet_dirs)[0])
             os.environ["PATH"] = f"{dotnet_dir}:{os.environ.get('PATH', '')}"
             print(f"Added {dotnet_dir} to PATH", flush=True)
 

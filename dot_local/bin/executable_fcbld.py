@@ -103,21 +103,6 @@ def get_conan_opts(name, profile, args, base):
         "-c", f"user.fc:install_dir={install_dir}",
     ]
 
-    if sys.platform == "win32":
-        opts.extend([
-            "-pr:h=os/windows/64bit/vs2022/Debug",
-            "-pr:b=os/windows/64bit/vs2022/Debug",
-        ])
-    elif sys.platform == "darwin":
-        opts.extend([
-            "-pr:h=os/macos/osx14_00_arm64/Debug",
-            "-pr:b=os/macos/osx14_00_arm64/Debug",
-        ])
-    else:
-        opts.extend([
-            "-pr:h=os/linux/64bit/Debug",
-            "-pr:b=os/linux/64bit/Debug",
-        ])
 
     if name == "kernel":
         opts.extend([

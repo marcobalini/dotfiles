@@ -82,11 +82,19 @@ def run_capture(cmd, cwd):
 
 
 def get_conan_opts(name, profile, args, base):
-    if profile:
-        return [f"-pr:a={profile}"]
-
+    # Always resolve build/install dirs so user.fc:build_dir is guaranteed to be
+    # set in every conan invocation.  Explicit -c flags take priority over any
+    # value the profile may (or may not) define, preventing in-source CMake builds.
     build_dir = str((args.build_dir or (Path.cwd() / "builds")).resolve())
     install_dir = str((args.install_dir or (Path.cwd() / "packages")).resolve())
+
+    if profile:
+        return [
+            f"-pr:a={profile}",
+            "-c", f"user.fc:build_dir={build_dir}",
+            "-c", f"user.fc:install_dir={install_dir}",
+        ]
+
     unicode_val = "1" if args.unicode else "0"
 
     opts = [

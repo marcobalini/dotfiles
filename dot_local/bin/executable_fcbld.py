@@ -95,7 +95,8 @@ def get_conan_opts(name, profile, args, base):
             "-c", f"user.fc:install_dir={install_dir}",
         ]
 
-    unicode_val = "1" if args.unicode else "0"
+    unicode_val = str(args.unicode)
+    icu_val = str(args.icu)
 
     opts = [
         "-s", f"build_type={args.build_type}",
@@ -103,18 +104,19 @@ def get_conan_opts(name, profile, args, base):
         "-c", f"user.fc:install_dir={install_dir}",
     ]
 
-
     if name == "kernel":
         opts.extend([
             "-o", f"&:oem={args.oem}",
             "-o", f"&:product_type={args.product}",
             "-o", f"&:unicode={unicode_val}",
+            "-o", f"&:icu_version={icu_val}",
         ])
     else:
         opts.extend([
             "-o", f"faircom_kernel/*:oem={args.oem}",
             "-o", f"faircom_kernel/*:product_type={args.product}",
             "-o", f"faircom_kernel/*:unicode={unicode_val}",
+            "-o", f"faircom_kernel/*:icu_version={icu_val}",
         ])
 
     return opts
@@ -152,7 +154,7 @@ def main():
     usage_text = (
         "%(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] --profile PROFILE\n"
         "       %(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] [--oem OEM]\n"
-        "              [--product PRODUCT] [--unicode] [--build-type BUILD_TYPE]\n"
+        "              [--product PRODUCT] [--unicode {0,1,2}] [--icu {42,78}] [--build-type BUILD_TYPE]\n"
         "              [--build-dir BUILD_DIR] [--install-dir INSTALL_DIR]"
     )
     parser = argparse.ArgumentParser(
@@ -173,14 +175,15 @@ def main():
     direct_group = parser.add_argument_group("Direct build mode (mutually exclusive with --profile)")
     direct_group.add_argument("--oem", default=None, help="OEM option (default: edge).")
     direct_group.add_argument("--product", "--product-type", default=None, help="Product type option (default: edge).")
-    direct_group.add_argument("--unicode", action="store_true", default=None, help="Enable unicode build (default: False/0).")
+    direct_group.add_argument("--unicode", type=int, choices=[0, 1, 2], default=None, metavar="{0,1,2}", help="Unicode build mode: 0=disabled, 1=enabled, 2=auto (default: 2).")
+    direct_group.add_argument("--icu", type=int, choices=[42, 78], default=None, metavar="{42,78}", help="ICU version to use (default: 78 when --unicode=2, 42 when --unicode<=1).")
     direct_group.add_argument("--build-type", default=None, help="Build type (default: Debug).")
     direct_group.add_argument("--build-dir", type=Path, default=None, help="Build output directory (default: ./builds).")
     direct_group.add_argument("--install-dir", type=Path, default=None, help="Install output directory (default: ./packages).")
     args = parser.parse_args()
 
     direct_opts_specified = [
-        opt for opt in ["oem", "product", "unicode", "build_type", "build_dir", "install_dir"]
+        opt for opt in ["oem", "product", "unicode", "icu", "build_type", "build_dir", "install_dir"]
         if getattr(args, opt) is not None
     ]
     if args.profile and direct_opts_specified:
@@ -193,7 +196,9 @@ def main():
     if args.product is None:
         args.product = "edge"
     if args.unicode is None:
-        args.unicode = False
+        args.unicode = 2
+    if args.icu is None:
+        args.icu = 78 if args.unicode == 2 else 42
     if args.build_type is None:
         args.build_type = "Debug"
 

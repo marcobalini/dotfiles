@@ -135,6 +135,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- POST-FLAG CONFIGURATION ---
+if [ ! -d "$PKGS_DIR" ]; then
+    echo "ERROR: Package directory '$PKGS_DIR' does not exist."
+    exit 1
+fi
 if [ "$BACKEND" = "libvirt" ]; then
     PKGS_DIR=$(realpath "$PKGS_DIR")
 elif [ "$BACKEND" = "tart" ]; then
@@ -970,18 +974,26 @@ if [ "$BACKEND" = "libvirt" ]; then
     done
     echo ""
 
-    if [ -n "$VM_IP" ]; then
-        echo -n "--- Probing SSH Port "
-        MAX_SSH_RETRIES=30; SSH_COUNT=0
-        while ! nc -z -w 1 "$VM_IP" 22 >/dev/null 2>&1 && [ $SSH_COUNT -lt $MAX_SSH_RETRIES ]; do echo -n "."; sleep 2; ((SSH_COUNT++)); done
-        echo " Ready!"
+    if [ -z "$VM_IP" ]; then
+        echo "ERROR: IP detection timed out."
+        exit 1
+    fi
 
-        if [ "$BUILD_VM" = true ]; then
-            echo "--- Saving Initial Clean Snapshot ---"
-            sudo virsh snapshot-delete "$VM_NAME" "$SNAPSHOT_NAME" 2>/dev/null || true
-            sudo virsh snapshot-create-as "$VM_NAME" "$SNAPSHOT_NAME" >/dev/null \
-                || { echo "WARNING: Failed to create snapshot '$SNAPSHOT_NAME'. -r and -s may fail."; }
-        fi
+    echo -n "--- Probing SSH Port "
+    MAX_SSH_RETRIES=30; SSH_COUNT=0
+    while ! nc -z -w 1 "$VM_IP" 22 >/dev/null 2>&1 && [ $SSH_COUNT -lt $MAX_SSH_RETRIES ]; do echo -n "."; sleep 2; ((SSH_COUNT++)); done
+    if [ $SSH_COUNT -eq $MAX_SSH_RETRIES ]; then
+        echo " FAILED!"
+        echo "ERROR: SSH probing timed out."
+        exit 1
+    fi
+    echo " Ready!"
+
+    if [ "$BUILD_VM" = true ]; then
+        echo "--- Saving Initial Clean Snapshot ---"
+        sudo virsh snapshot-delete "$VM_NAME" "$SNAPSHOT_NAME" 2>/dev/null || true
+        sudo virsh snapshot-create-as "$VM_NAME" "$SNAPSHOT_NAME" >/dev/null \
+            || { echo "WARNING: Failed to create snapshot '$SNAPSHOT_NAME'. -r and -s may fail."; }
     fi
 
 elif [ "$BACKEND" = "tart" ]; then
@@ -992,15 +1004,14 @@ fi
 
 # --- SYNC PACKAGES ---
 if [ "$SYNC_ONLY" = true ] && [ "$PKG_EXT" != "unknown" ]; then
-    if ls "$PKGS_DIR"/*."$PKG_EXT" >/dev/null 2>&1; then
+    if ls "$PKGS_DIR"*."$PKG_EXT" >/dev/null 2>&1 || ls "$PKGS_DIR"/*."$PKG_EXT" >/dev/null 2>&1; then
         echo "--- Removing old packages in VM ---"
-        if [ "$BACKEND" = "libvirt" ]; then
-            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$SSH_KEY_PRIV" -q "$USER_NAME@$VM_IP" "sudo rm -f /home/$USER_NAME/*.$PKG_EXT"
-            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$SSH_KEY_PRIV" -q "$PKGS_DIR"/*."$PKG_EXT" "$USER_NAME@$VM_IP:/home/$USER_NAME/"
-        elif [ "$BACKEND" = "tart" ]; then
-            vm_ssh "$USER_NAME@$VM_IP" "sudo rm -f /home/$USER_NAME/*.$PKG_EXT"
-            vm_scp "$PKGS_DIR"/*."$PKG_EXT" "$USER_NAME@$VM_IP:/home/$USER_NAME/"
-        fi
+        vm_ssh "$USER_NAME@$VM_IP" "sudo rm -f /home/$USER_NAME/*.$PKG_EXT" \
+            || { echo "WARNING: Failed to remove old packages from VM."; }
+        echo "--- Injecting *.$PKG_EXT from $PKGS_DIR via SCP ---"
+        vm_scp "$PKGS_DIR"/*."$PKG_EXT" "$USER_NAME@$VM_IP:/home/$USER_NAME/" \
+            || { echo "ERROR: SCP failed — packages NOT copied to VM."; exit 1; }
+        echo "--- Packages synced successfully ---"
     else
         echo "WARNING: No *.$PKG_EXT files found in $PKGS_DIR"
     fi

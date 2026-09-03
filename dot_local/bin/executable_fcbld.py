@@ -10,9 +10,10 @@ from pathlib import Path
 # - conan_subpath: subpath containing Conan package (or None if repo is sync-only)
 # - build_during_configure: if True, run `conan build` instead of `conan build -c user.fc:configure_only=y`
 REPOS = [
+    ("conan-utils", "https://github.com/FairCom-Official/fairCom-conan-utils.git", None, False),
+    ("conan-profiles", "https://github.com/FairCom-Official/fairCom-conan-profiles.git", None, False),
     ("build", "https://github.com/FairCom-Official/build.git", None, False),
     ("thirdparty", "https://github.com/FairCom-Official/thirdparty.git", None, False),
-    ("conan-utils", "https://github.com/FairCom-Official/fairCom-conan-utils.git", None, False),
     ("kernel", "https://github.com/FairCom-Official/faircom-kernel.git", "make", True),
     ("util", "https://github.com/FairCom-Official/faircom-utility.git", "make", True),
     ("plugin", "https://github.com/FairCom-Official/faircom-plugin.git", "make", False),

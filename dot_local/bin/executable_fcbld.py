@@ -20,7 +20,7 @@ REPOS = [
     ("java", "https://github.com/FairCom-Official/faircom-java.git", "make", False),
     ("dotnet", "https://github.com/FairCom-Official/faircom-dotnet.git", "make", False),
     ("webtools", "https://github.com/FairCom-Official/faircom-webtools.git", "make", False),
-    ("packager", "https://github.com/FairCom-Official/faircom-packager.git", "FairComEdge", False),
+    ("packager", "https://github.com/FairCom-Official/faircom-packager.git", "make", False),
 ]
 
 

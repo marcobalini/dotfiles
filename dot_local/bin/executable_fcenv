@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Check that the script is sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "Error: Please source this script: 'source $(basename "$0") <directory_path>'" >&2
+  exit 1
+fi
+
+# Show usage if --help or -h is passed
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  echo "Usage: source $(basename "$0") <directory_path>"
+  echo "  <directory_path> : Sets fcHOME and defines sta/sto functions."
+  echo "  No argument      : Unsets fcHOME and removes sta/sto functions."
+  return 0
+fi
+
+# If no argument, clean environment and functions
+if [ -z "$1" ]; then
+  unset fcHOME
+  unset -f sta 2>/dev/null
+  unset -f sto 2>/dev/null
+  echo "fcHOME, sta, and sto have been unset."
+  return 0
+fi
+
+export fcHOME="$(cd "$1" && pwd)"
+
+sta() {
+  pushd $fcHOME/ > /dev/null
+  cd "./server"
+  ./faircom &
+  popd > /dev/null
+}
+
+sto() {
+  tool ctstop -auto
+}
+
+tool() {
+  local exe="$1"
+  shift
+  "$fcHOME/tools/$exe" "$@"
+}
+
+ctutil() {
+  "$fcHOME/drivers/ctree.cobol/acucobol/ctutil" "$@"
+}
+
+
+echo "fcHOME set to $fcHOME"
+echo "Function 'sta' defined. Run 'sta' to start faircom in background."
+echo "Function 'sto' defined. Run 'sto' to stop faircom automatically."

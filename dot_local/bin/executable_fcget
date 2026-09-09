@@ -1,0 +1,7 @@
+#!/bin/sh
+# Credentials are looked up per-host from ~/.netrc (chmod 600), never stored here.
+if [ -z "$1" ]; then
+	echo "Usage: fcget <url>" >&2
+	exit 1
+fi
+curl --netrc-file "$HOME/.netrc" -O "$1"

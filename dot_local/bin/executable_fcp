@@ -1,3 +1,0 @@
-#!/bin/sh
-# Credentials are looked up per-host from ~/.netrc (chmod 600), never stored here.
-curl --netrc-file "$HOME/.netrc" --insecure -O "$1"

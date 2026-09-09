@@ -1,7 +1,37 @@
-#!/bin/sh
+#!/bin/bash
 # Credentials are looked up per-host from ~/.netrc (chmod 600), never stored here.
 if [ -z "$1" ]; then
 	echo "Usage: fcget <url>" >&2
 	exit 1
 fi
-curl --netrc-file "$HOME/.netrc" -O "$1"
+URL="$1"
+NETRC="$HOME/.netrc"
+
+case "$URL" in
+sftp://*)
+	# scp/ssh don't read .netrc, so pull the matching entry out of it for sshpass.
+	REST=${URL#sftp://}
+	URLUSER=""
+	case "$REST" in
+	*@*) URLUSER=${REST%%@*}; REST=${REST#*@} ;;
+	esac
+	HOST=${REST%%[:/]*}
+	PATH_PART=${REST#*/}
+	PATH_PART=$(printf '%b' "${PATH_PART//%/\\x}")
+	LOGIN="$URLUSER"
+	if [ -z "$LOGIN" ]; then
+		LOGIN=$(awk -v h="$HOST" '$1=="machine"&&$2==h{f=1;next} f&&$1=="login"{print $2;exit}' "$NETRC")
+	fi
+	PASS=$(awk -v h="$HOST" '$1=="machine"&&$2==h{f=1;next} f&&$1=="password"{print $2;exit}' "$NETRC")
+	if [ -z "$LOGIN" ] || [ -z "$PASS" ]; then
+		echo "fcget: no .netrc entry for $HOST" >&2
+		exit 1
+	fi
+	echo "Downloading ${PATH_PART##*/} from $HOST..." >&2
+	sshpass -f <(printf '%s\n' "$PASS") scp -o StrictHostKeyChecking=accept-new "$LOGIN@$HOST:/$PATH_PART" .
+	;;
+*)
+	echo "Downloading ${URL##*/}..." >&2
+	curl --netrc-file "$NETRC" -O "$URL"
+	;;
+esac

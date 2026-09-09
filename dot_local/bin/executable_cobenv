@@ -1,0 +1,135 @@
+#!/bin/bash
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "Error: Please source this script: 'source $(basename "$0") <acu|mf>'" >&2
+  exit 1
+fi
+
+_cobenv_usage() {
+  echo "Usage: source $(basename "${BASH_SOURCE[0]}") <acu|mf>"
+  echo "  acu          Use the newest ACUCOBOL-GT installation under /opt/AcuGT*."
+  echo "  mf           Use Rocket Visual COBOL under /opt/rocketsoftware/VisualCOBOL."
+  echo "  No argument  Clear the COBOL environment and remove ccc/run functions."
+}
+
+_cobenv_clear() {
+  if [[ -n "${COBOL_FC_LIB:-}" ]]; then
+    export PATH="${PATH#"$COBOL_FC_LIB:"}"
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH#"$COBOL_FC_LIB:"}"
+  fi
+  if [[ -n "${COBOL_HOME:-}" ]]; then
+    export PATH="${PATH#"$COBOL_HOME/bin:"}"
+    LD_LIBRARY_PATH="${LD_LIBRARY_PATH#"$COBOL_HOME/lib:"}"
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH%":$COBOL_HOME/lib"}"
+  fi
+
+  unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
+  unset COBDIR CLASSPATH COBCPY MFPLI_PRODUCT_DIR
+  unset COBOL_HOME COBOL_RUNTIME COBOL_FC_LIB
+  unset -f ccc run 2>/dev/null
+}
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  _cobenv_usage
+  unset -f _cobenv_usage _cobenv_clear
+  return 0
+fi
+
+if [[ -z "$1" ]]; then
+  _cobenv_clear
+  unset -f _cobenv_usage _cobenv_clear
+  echo "COBOL environment and ccc/run functions have been unset."
+  return 0
+fi
+
+if [[ -n "${COBOL_RUNTIME:-}" ]]; then
+  echo "Error: COBOL runtime '$COBOL_RUNTIME' is already active." >&2
+  echo "Run 'source $(basename "${BASH_SOURCE[0]}")' before selecting another runtime." >&2
+  unset -f _cobenv_usage _cobenv_clear
+  return 1
+fi
+
+case "$1" in
+  acu)
+    mapfile -t _cobenv_candidates < <(printf '%s\n' /opt/AcuGT* | sort -V)
+    COBOL_HOME=""
+    for _cobenv_dir in "${_cobenv_candidates[@]}"; do
+      if [[ -x "$_cobenv_dir/bin/ccbl" && -x "$_cobenv_dir/bin/runcbl" ]]; then
+        COBOL_HOME="$_cobenv_dir"
+      fi
+    done
+    if [[ -z "$COBOL_HOME" ]]; then
+      echo "Error: No ACUCOBOL-GT installation found under /opt/AcuGT*." >&2
+      unset _cobenv_candidates _cobenv_dir
+      unset -f _cobenv_usage _cobenv_clear
+      return 1
+    fi
+
+    export COBOL_HOME COBOL_RUNTIME="acu"
+    unset ACUCOBOL COBDIR
+    source "$COBOL_HOME/bin/acusetenv.sh" "$COBOL_HOME"
+    if [[ -n "${fcHOME:-}" ]]; then
+      export COBOL_FC_LIB="$fcHOME/drivers/ctree.cobol/acucobol"
+      export PATH="$COBOL_FC_LIB:$PATH"
+      export LD_LIBRARY_PATH="$COBOL_FC_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+
+    ccc() {
+      "$COBOL_HOME/bin/ccbl" "$@"
+    }
+
+    run() {
+      local default_host="${DEFAULT_HOST:-}"
+
+      if [[ "$1" == "-H" || "$1" == "--host" ]]; then
+        if [[ -z "$2" ]]; then
+          echo "Usage: run [-H|--host <host>] <program> [arguments...]" >&2
+          return 1
+        fi
+        default_host="$2"
+        shift 2
+      fi
+
+      A_TERM=vt100 DEFAULT_HOST="$default_host" "$COBOL_HOME/bin/runcbl" "$@"
+    }
+    ;;
+  mf)
+    COBOL_HOME="/opt/rocketsoftware/VisualCOBOL"
+    if [[ ! -x "$COBOL_HOME/bin/cob" || ! -x "$COBOL_HOME/bin/cobrun" ]]; then
+      echo "Error: Visual COBOL not found under $COBOL_HOME." >&2
+      unset COBOL_HOME
+      unset -f _cobenv_usage _cobenv_clear
+      return 1
+    fi
+
+    export COBOL_HOME COBOL_RUNTIME="mf"
+    unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
+    source "$COBOL_HOME/bin/cobsetenv" "$COBOL_HOME"
+    if [[ -n "${fcHOME:-}" ]]; then
+      export COBOL_FC_LIB="$fcHOME/drivers/ctree.cobol/extfh"
+      export PATH="$COBOL_FC_LIB:$PATH"
+      export LD_LIBRARY_PATH="$COBOL_FC_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+
+    ccc() {
+      "$COBOL_HOME/bin/cob" "$@"
+    }
+
+    run() {
+      "$COBOL_HOME/bin/cobrun" "$@"
+    }
+    ;;
+  *)
+    echo "Error: Unknown COBOL runtime '$1'. Expected 'acu' or 'mf'." >&2
+    _cobenv_usage >&2
+    unset -f _cobenv_usage _cobenv_clear
+    return 1
+    ;;
+esac
+
+unset _cobenv_candidates _cobenv_dir
+unset -f _cobenv_usage _cobenv_clear
+
+echo "COBOL_RUNTIME set to $COBOL_RUNTIME"
+echo "COBOL_HOME set to $COBOL_HOME"
+echo "Vendor environment loaded. Functions 'ccc' and 'run' are ready."

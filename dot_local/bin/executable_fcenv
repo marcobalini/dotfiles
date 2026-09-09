@@ -43,7 +43,7 @@ tool() {
 }
 
 ctutil() {
-  "$fcHOME/drivers/ctree.cobol/acucobol/ctutil" "$@"
+  command ctutil "$@"
 }
 
 

@@ -24,6 +24,39 @@ REPOS = [
 ]
 
 
+def check_conan():
+    """Verify that the conan executable is available; exit with a helpful hint if not."""
+    result = subprocess.run(
+        ["conan", "--version"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        print("ERROR: 'conan' not found. Install it with: pip install conan", file=sys.stderr)
+        sys.exit(1)
+
+
+def ensure_conan_default_profile():
+    """Create the default Conan profile if it doesn't exist yet."""
+    result = subprocess.run(
+        ["conan", "profile", "path", "default"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        profile_path = Path.home() / ".conan2" / "profiles" / "default"
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os_name, arch_name = "windows", "64bit"
+        elif sys.platform == "darwin":
+            os_name, arch_name = "macos", "osx14_00_arm64"
+        else:
+            os_name, arch_name = "linux", "64bit"
+        include_path = Path.home() / "_" / "conan-profiles" / "profiles" / "os" / os_name / arch_name / "Debug"
+        profile_path.write_text(f"include({include_path})\n")
+        print(f"INFO: created default Conan profile: {profile_path}", flush=True)
+
+
 def setup_environment(base):
     deps_dir = base / "deps"
     if deps_dir.is_dir():
@@ -151,6 +184,8 @@ def get_build_dir(profile, args, base):
 
 
 def main():
+    check_conan()
+    ensure_conan_default_profile()
     import argparse
     usage_text = (
         "%(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] --profile PROFILE\n"

@@ -248,7 +248,7 @@ def main():
     if args.product is None:
         args.product = "edge"
     if args.unicode is None:
-        args.unicode = 2
+        args.unicode = 0
     if args.icu is None:
         args.icu = 78 if args.unicode == 2 else 42
     if args.build_type is None:

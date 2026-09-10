@@ -222,11 +222,11 @@ def main():
     general_group.add_argument("--msbuild", action="store_true", help="Run msbuild on the generated solution after configure (Windows only).")
 
     profile_group = parser.add_argument_group("Profile mode")
-    profile_group.add_argument("--profile", "-p", "-pr", default=None, help="Conan profile to use (e.g. prod/edge-debug).")
+    profile_group.add_argument("--profile", "-pr", default=None, help="Conan profile to use (e.g. prod/edge-debug).")
 
     direct_group = parser.add_argument_group("Direct build mode (mutually exclusive with --profile)")
-    direct_group.add_argument("--oem", default=None, help="OEM option (default: edge).")
-    direct_group.add_argument("--product", "--product-type", default=None, help="Product type option (default: edge).")
+    direct_group.add_argument("--oem", default=None, help="OEM option (default: edge, or rtg when product is rtg).")
+    direct_group.add_argument("--product", "--product-type", "-p", default=None, help="Product type option (default: edge).")
     direct_group.add_argument("--unicode", type=int, choices=[0, 1, 2], default=None, metavar="{0,1,2}", help="Unicode build mode: 0=disabled, 1=enabled, 2=auto (default: 2).")
     direct_group.add_argument("--icu", type=int, choices=[42, 78], default=None, metavar="{42,78}", help="ICU version to use (default: 78 when --unicode=2, 42 when --unicode<=1).")
     direct_group.add_argument("--build-type", default=None, help="Build type (default: Debug).")
@@ -240,11 +240,11 @@ def main():
     ]
     if args.profile and direct_opts_specified:
         opt_names = ", ".join("--" + opt.replace("_", "-") for opt in direct_opts_specified)
-        parser.error(f"--profile (-p/-pr) cannot be used together with direct build options: {opt_names}")
+        parser.error(f"--profile (--profile/-pr) cannot be used together with direct build options: {opt_names}")
 
     # Set default values when direct build options are used
     if args.oem is None:
-        args.oem = "edge"
+        args.oem = "rtg" if args.product.lower() == "rtg" else "edge"
     if args.product is None:
         args.product = "edge"
     if args.unicode is None:

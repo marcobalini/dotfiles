@@ -4,6 +4,7 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Repository definitions: (name, git_url, conan_subpath, build_during_configure)
@@ -66,11 +67,26 @@ def setup_environment(base):
             os.environ["JAVA_HOME"] = jdk_home
             print(f"Set JAVA_HOME={jdk_home}", flush=True)
 
-        dotnet_dirs = [d for d in deps_dir.glob("dotnet-sdk-*") if d.is_dir() and not d.name.endswith(".tar.gz")]
-        if dotnet_dirs:
-            dotnet_dir = str(sorted(dotnet_dirs)[0])
-            os.environ["PATH"] = f"{dotnet_dir}:{os.environ.get('PATH', '')}"
-            print(f"Added {dotnet_dir} to PATH", flush=True)
+    dotnet_dir = base / "dotnet-sdk"
+    if not dotnet_dir.is_dir():
+        install_dotnet_sdk(dotnet_dir)
+    if dotnet_dir.is_dir():
+        os.environ["PATH"] = f"{dotnet_dir}:{os.environ.get('PATH', '')}"
+        print(f"Added {dotnet_dir} to PATH", flush=True)
+
+
+def install_dotnet_sdk(dotnet_dir):
+    """Download and run the official dotnet-install.sh script to install the SDK."""
+    print(f"INFO: dotnet SDK not found, installing into {dotnet_dir}", flush=True)
+    with tempfile.NamedTemporaryFile(suffix=".sh", delete=False) as tmp:
+        script_path = tmp.name
+    try:
+        run(["curl", "-sSL", "-o", script_path,
+             "https://builds.dotnet.microsoft.com/dotnet/scripts/v1/dotnet-install.sh"], cwd=Path.cwd())
+        os.chmod(script_path, 0o755)
+        run(["bash", script_path, "-c", "8.0", "-v", "latest", "-i", str(dotnet_dir)], cwd=Path.cwd())
+    finally:
+        os.remove(script_path)
 
 
 def run(cmd, cwd):

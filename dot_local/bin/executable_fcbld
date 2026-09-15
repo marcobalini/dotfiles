@@ -40,7 +40,7 @@ def check_conan():
         sys.exit(1)
 
 
-def ensure_conan_default_profile():
+def ensure_conan_default_profile(default_base):
     """Create the default Conan profile if it doesn't exist yet."""
     result = subprocess.run(
         ["conan", "profile", "path", "default"],
@@ -56,7 +56,7 @@ def ensure_conan_default_profile():
             os_name, arch_name = "macos", "osx14_00_arm64"
         else:
             os_name, arch_name = "linux", "64bit"
-        include_path = Path.home() / "_" / "conan-profiles" / "profiles" / "os" / os_name / arch_name / "Debug"
+        include_path = default_base / "conan-profiles" / "profiles" / "os" / os_name / arch_name / "Debug"
         profile_path.write_text(f"include({include_path})\n")
         print(f"INFO: created default Conan profile: {profile_path}", flush=True)
 
@@ -263,7 +263,6 @@ def get_build_dir(profile, args, base):
 
 def main():
     check_conan()
-    ensure_conan_default_profile()
     import argparse
     usage_text = (
         "%(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] --profile PROFILE\n"
@@ -278,6 +277,7 @@ def main():
     
     general_group = parser.add_argument_group("General options")
     default_base = Path("D:/_") if sys.platform == "win32" else Path("~/_").expanduser()
+    ensure_conan_default_profile(default_base)
     general_group.add_argument("--base-dir", "-b", type=Path, default=default_base, help="Base directory for repositories (default: D:\\_ on Windows, ~/_ on Linux/macOS).")
     general_group.add_argument("--no-sync", "--skip-sync", action="store_true", help="Skip syncing (git clone/pull) repositories.")
     general_group.add_argument("--no-build", "--skip-build", action="store_true", help="Skip running conan build (full compilation) after configure.")

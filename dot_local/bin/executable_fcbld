@@ -2,9 +2,12 @@
 
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
+import zipfile
 from pathlib import Path
 
 # Repository definitions: (name, git_url, conan_subpath, build_during_configure)
@@ -59,20 +62,20 @@ def ensure_conan_default_profile():
 
 
 def setup_environment(base):
-    deps_dir = base / "deps"
-    if deps_dir.is_dir():
-        jdk_dirs = [d for d in deps_dir.glob("jdk-*") if d.is_dir() and not d.name.endswith(".tar.gz")]
-        if jdk_dirs:
-            jdk_home = str(sorted(jdk_dirs)[0])
-            os.environ["JAVA_HOME"] = jdk_home
-            print(f"Set JAVA_HOME={jdk_home}", flush=True)
-
     dotnet_dir = base / "dotnet-sdk"
     if not dotnet_dir.is_dir():
         install_dotnet_sdk(dotnet_dir)
     if dotnet_dir.is_dir():
-        os.environ["PATH"] = f"{dotnet_dir}:{os.environ.get('PATH', '')}"
+        os.environ["PATH"] = f"{dotnet_dir}{os.pathsep}{os.environ.get('PATH', '')}"
         print(f"Added {dotnet_dir} to PATH", flush=True)
+
+    java_dir = base / "java-sdk"
+    if not java_dir.is_dir():
+        install_java_sdk(java_dir)
+    if java_dir.is_dir():
+        os.environ["JAVA_HOME"] = str(java_dir)
+        os.environ["PATH"] = f"{java_dir / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"
+        print(f"Set JAVA_HOME={java_dir}", flush=True)
 
 
 def install_dotnet_sdk(dotnet_dir):
@@ -87,6 +90,49 @@ def install_dotnet_sdk(dotnet_dir):
         run(["bash", script_path, "-c", "8.0", "-v", "latest", "-i", str(dotnet_dir)], cwd=Path.cwd())
     finally:
         os.remove(script_path)
+
+
+def install_java_sdk(java_dir):
+    """Download and extract the latest GA Adoptium Temurin 11 JDK."""
+    system = platform.system().lower()
+    os_name = {"linux": "linux", "darwin": "mac", "windows": "windows"}.get(system)
+    machine = platform.machine().lower()
+    arch = {
+        "x86_64": "x64",
+        "amd64": "x64",
+        "aarch64": "aarch64",
+        "arm64": "aarch64",
+        "ppc64le": "ppc64le",
+        "s390x": "s390x",
+    }.get(machine)
+    if os_name is None or arch is None:
+        raise RuntimeError(f"Unsupported platform for Adoptium JDK installation: {system}/{machine}")
+
+    extension = ".zip" if os_name == "windows" else ".tar.gz"
+    url = (
+        "https://api.adoptium.net/v3/binary/latest/11/ga/"
+        f"{os_name}/{arch}/jdk/hotspot/normal/eclipse"
+    )
+    print(f"INFO: Java SDK not found, installing Adoptium 11 into {java_dir}", flush=True)
+    java_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        archive_path = Path(temp_dir) / f"adoptium-11{extension}"
+        run(["curl", "-fsSL", "-o", str(archive_path), url], cwd=Path.cwd())
+        extract_dir = Path(temp_dir) / "extracted"
+        extract_dir.mkdir()
+        if extension == ".zip":
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(extract_dir)
+        else:
+            with tarfile.open(archive_path, "r:gz") as archive:
+                archive.extractall(extract_dir)
+
+        roots = [path for path in extract_dir.iterdir() if path.is_dir()]
+        if len(roots) != 1:
+            raise RuntimeError(f"Unexpected Adoptium archive layout: {archive_path}")
+        if java_dir.exists():
+            shutil.rmtree(java_dir)
+        shutil.move(str(roots[0]), str(java_dir))
 
 
 def run(cmd, cwd):
@@ -243,10 +289,10 @@ def main():
         parser.error(f"--profile (--profile/-pr) cannot be used together with direct build options: {opt_names}")
 
     # Set default values when direct build options are used
-    if args.oem is None:
-        args.oem = "rtg" if args.product.lower() == "rtg" else "edge"
     if args.product is None:
         args.product = "edge"
+    if args.oem is None:
+        args.oem = "rtg" if args.product.lower() == "rtg" else "edge"
     if args.unicode is None:
         args.unicode = 0
     if args.icu is None:

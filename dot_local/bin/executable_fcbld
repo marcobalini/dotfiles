@@ -79,15 +79,31 @@ def setup_environment(base):
 
 
 def install_dotnet_sdk(dotnet_dir):
-    """Download and run the official dotnet-install.sh script to install the SDK."""
+    """Download and run the official .NET install script for the host platform."""
     print(f"INFO: dotnet SDK not found, installing into {dotnet_dir}", flush=True)
-    with tempfile.NamedTemporaryFile(suffix=".sh", delete=False) as tmp:
+    is_windows = sys.platform == "win32"
+    script_suffix = ".ps1" if is_windows else ".sh"
+    script_url = (
+        "https://builds.dotnet.microsoft.com/dotnet/scripts/v1/"
+        f"dotnet-install{script_suffix}"
+    )
+    with tempfile.NamedTemporaryFile(suffix=script_suffix, delete=False) as tmp:
         script_path = tmp.name
     try:
         run(["curl", "-sSL", "-o", script_path,
-             "https://builds.dotnet.microsoft.com/dotnet/scripts/v1/dotnet-install.sh"], cwd=Path.cwd())
-        os.chmod(script_path, 0o755)
-        run(["bash", script_path, "-c", "8.0", "-v", "latest", "-i", str(dotnet_dir)], cwd=Path.cwd())
+             script_url], cwd=Path.cwd())
+        if is_windows:
+            powershell = shutil.which("pwsh") or shutil.which("powershell")
+            if powershell is None:
+                raise RuntimeError("PowerShell is required to install the .NET SDK on Windows")
+            run([
+                powershell, "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", script_path, "-Channel", "8.0", "-Version", "latest",
+                "-InstallDir", str(dotnet_dir),
+            ], cwd=Path.cwd())
+        else:
+            os.chmod(script_path, 0o755)
+            run(["bash", script_path, "-c", "8.0", "-v", "latest", "-i", str(dotnet_dir)], cwd=Path.cwd())
     finally:
         os.remove(script_path)
 

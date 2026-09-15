@@ -40,6 +40,18 @@ def check_conan():
         sys.exit(1)
 
 
+def get_windows_vs_profile(path_value=None):
+    """Return the Conan profile directory for the Visual Studio version on PATH."""
+    path_value = os.environ.get("PATH", "") if path_value is None else path_value
+    for path_entry in path_value.split(os.pathsep):
+        parts = path_entry.replace("\\", "/").lower().split("/")
+        if "2026" in parts or "vs2026" in parts:
+            return "vs2026"
+        if "2022" in parts or "vs2022" in parts:
+            return "vs2022"
+    return "vs2022"
+
+
 def ensure_conan_default_profile(default_base):
     """Create the default Conan profile if it doesn't exist yet."""
     result = subprocess.run(
@@ -52,11 +64,17 @@ def ensure_conan_default_profile(default_base):
         profile_path.parent.mkdir(parents=True, exist_ok=True)
         if sys.platform == "win32":
             os_name, arch_name = "windows", "64bit"
+            compiler_name = get_windows_vs_profile()
         elif sys.platform == "darwin":
             os_name, arch_name = "macos", "osx14_00_arm64"
+            compiler_name = None
         else:
             os_name, arch_name = "linux", "64bit"
-        include_path = default_base / "conan-profiles" / "profiles" / "os" / os_name / arch_name / "Debug"
+            compiler_name = None
+        include_path = default_base / "conan-profiles" / "profiles" / "os" / os_name / arch_name
+        if compiler_name:
+            include_path /= compiler_name
+        include_path /= "Debug"
         profile_path.write_text(f"include({include_path})\n")
         print(f"INFO: created default Conan profile: {profile_path}", flush=True)
 

@@ -30,13 +30,43 @@ REPOS = [
 
 def check_conan():
     """Verify that the conan executable is available; exit with a helpful hint if not."""
-    result = subprocess.run(
-        ["conan", "--version"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        result = subprocess.run(
+            ["conan", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        print("ERROR: 'conan' not found. Install it with: pip install conan", file=sys.stderr)
+        sys.exit(1)
+
     if result.returncode != 0:
         print("ERROR: 'conan' not found. Install it with: pip install conan", file=sys.stderr)
+        sys.exit(1)
+
+
+def check_cmake():
+    """Verify that CMake is available; exit with a helpful hint if not."""
+    try:
+        result = subprocess.run(
+            ["cmake", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        print(
+            "ERROR: 'cmake' not found. Install it with: winget install --id Kitware.CMake -e\n"
+            "       or download from https://cmake.org/download/",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if result.returncode != 0:
+        print(
+            "ERROR: 'cmake' not found. Install it with: winget install --id Kitware.CMake -e\n"
+            "       or download from https://cmake.org/download/",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
@@ -281,6 +311,7 @@ def get_build_dir(profile, args, base):
 
 def main():
     check_conan()
+    check_cmake()
     import argparse
     usage_text = (
         "%(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] --profile PROFILE\n"

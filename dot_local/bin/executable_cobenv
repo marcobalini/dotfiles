@@ -1,13 +1,14 @@
 #!/bin/bash
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  echo "Error: Please source this script: 'source $(basename "$0") <acu|mf>'" >&2
+  echo "Error: Please source this script: 'source $(basename "$0") <acu|is|mf>'" >&2
   exit 1
 fi
 
 _cobenv_usage() {
-  echo "Usage: source $(basename "${BASH_SOURCE[0]}") <acu|mf>"
+  echo "Usage: source $(basename "${BASH_SOURCE[0]}") <acu|is|mf>"
   echo "  acu          Use the newest ACUCOBOL-GT installation under /opt/AcuGT*."
+  echo "  is           Use the newest Veryant isCOBOL SDK under /opt/veryant/isCOBOL_SDK*."
   echo "  mf           Use Rocket Visual COBOL under /opt/rocketsoftware/VisualCOBOL."
   echo "  No argument  Clear the COBOL environment and remove ccc/run functions."
 }
@@ -19,13 +20,17 @@ _cobenv_clear() {
   fi
   if [[ -n "${COBOL_HOME:-}" ]]; then
     export PATH="${PATH#"$COBOL_HOME/bin:"}"
-    LD_LIBRARY_PATH="${LD_LIBRARY_PATH#"$COBOL_HOME/lib:"}"
-    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH%":$COBOL_HOME/lib"}"
+    if [[ "${COBOL_RUNTIME:-}" == "is" ]]; then
+      export LD_LIBRARY_PATH="${LD_LIBRARY_PATH#"$COBOL_HOME/native/lib:"}"
+    else
+      LD_LIBRARY_PATH="${LD_LIBRARY_PATH#"$COBOL_HOME/lib:"}"
+      export LD_LIBRARY_PATH="${LD_LIBRARY_PATH%":$COBOL_HOME/lib"}"
+    fi
   fi
 
   unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
   unset COBDIR CLASSPATH COBCPY MFPLI_PRODUCT_DIR
-  unset COBOL_HOME COBOL_RUNTIME COBOL_FC_LIB
+  unset COBOL_HOME cobolHOME COBOL_RUNTIME COBOL_FC_LIB ISCOBOL
   unset -f ccc run 2>/dev/null
 }
 
@@ -65,7 +70,7 @@ case "$1" in
       return 1
     fi
 
-    export COBOL_HOME COBOL_RUNTIME="acu"
+    export COBOL_HOME cobolHOME="$COBOL_HOME" COBOL_RUNTIME="acu"
     unset ACUCOBOL COBDIR
     source "$COBOL_HOME/bin/acusetenv.sh" "$COBOL_HOME"
     if [[ -n "${fcHOME:-}" ]]; then
@@ -93,16 +98,49 @@ case "$1" in
       A_TERM=vt100 DEFAULT_HOST="$default_host" "$COBOL_HOME/bin/runcbl" "$@"
     }
     ;;
-  mf)
-    COBOL_HOME="/opt/rocketsoftware/VisualCOBOL"
-    if [[ ! -x "$COBOL_HOME/bin/cob" || ! -x "$COBOL_HOME/bin/cobrun" ]]; then
-      echo "Error: Visual COBOL not found under $COBOL_HOME." >&2
-      unset COBOL_HOME
+  is)
+    mapfile -t _cobenv_candidates < <(printf '%s\n' /opt/veryant/isCOBOL_SDK* | sort -V)
+    COBOL_HOME=""
+    for _cobenv_dir in "${_cobenv_candidates[@]}"; do
+      if [[ -x "$_cobenv_dir/bin/iscc" && -x "$_cobenv_dir/bin/iscrun" ]]; then
+        COBOL_HOME="$_cobenv_dir"
+      fi
+    done
+    if [[ -z "$COBOL_HOME" ]]; then
+      echo "Error: No isCOBOL SDK found under /opt/veryant/isCOBOL_SDK*." >&2
+      unset _cobenv_candidates _cobenv_dir
       unset -f _cobenv_usage _cobenv_clear
       return 1
     fi
 
-    export COBOL_HOME COBOL_RUNTIME="mf"
+    export COBOL_HOME cobolHOME="$COBOL_HOME" COBOL_RUNTIME="is" ISCOBOL="$COBOL_HOME"
+    export PATH="$COBOL_HOME/bin:$PATH"
+    export LD_LIBRARY_PATH="$COBOL_HOME/native/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
+    if [[ -n "${fcHOME:-}" ]]; then
+      export COBOL_FC_LIB="$fcHOME/drivers/ctree.cobol/iscobol"
+      export PATH="$COBOL_FC_LIB:$PATH"
+      export LD_LIBRARY_PATH="$COBOL_FC_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+
+    ccc() {
+      "$COBOL_HOME/bin/iscc" "$@"
+    }
+
+    run() {
+      "$COBOL_HOME/bin/iscrun" "$@"
+    }
+    ;;
+  mf)
+    COBOL_HOME="/opt/rocketsoftware/VisualCOBOL"
+    if [[ ! -x "$COBOL_HOME/bin/cob" || ! -x "$COBOL_HOME/bin/cobrun" ]]; then
+      echo "Error: Visual COBOL not found under $COBOL_HOME." >&2
+      unset COBOL_HOME cobolHOME
+      unset -f _cobenv_usage _cobenv_clear
+      return 1
+    fi
+
+    export COBOL_HOME cobolHOME="$COBOL_HOME" COBOL_RUNTIME="mf"
     unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
     source "$COBOL_HOME/bin/cobsetenv" "$COBOL_HOME"
     if [[ -n "${fcHOME:-}" ]]; then
@@ -120,7 +158,7 @@ case "$1" in
     }
     ;;
   *)
-    echo "Error: Unknown COBOL runtime '$1'. Expected 'acu' or 'mf'." >&2
+    echo "Error: Unknown COBOL runtime '$1'. Expected 'acu', 'is', or 'mf'." >&2
     _cobenv_usage >&2
     unset -f _cobenv_usage _cobenv_clear
     return 1
@@ -132,4 +170,5 @@ unset -f _cobenv_usage _cobenv_clear
 
 echo "COBOL_RUNTIME set to $COBOL_RUNTIME"
 echo "COBOL_HOME set to $COBOL_HOME"
+echo "cobolHOME set to $cobolHOME"
 echo "Vendor environment loaded. Functions 'ccc' and 'run' are ready."

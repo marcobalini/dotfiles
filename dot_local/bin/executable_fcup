@@ -1,0 +1,32 @@
+:<<"::BATCH"
+@echo off
+rem ---- Windows batch section ----
+for /d %%d in (*) do (
+  if exist "%%d\.git" (
+    echo Syncing %%d...
+    git -C "%%d" pull
+  ) else if exist "%%d\.svn" (
+    echo Syncing %%d...
+    svn update "%%d"
+  )
+)
+goto :eof
+::BATCH
+
+#!/usr/bin/env bash
+# ---- POSIX shell section ----
+for d in */; do
+  if [ -d "$d/.git" ]; then
+    (
+      echo "Syncing $d..."
+      git -C "$d" pull
+    ) &
+  elif [ -d "$d/.svn" ]; then
+    (
+      echo "Syncing $d..."
+      svn update "$d"
+    ) &
+  fi
+done
+
+wait

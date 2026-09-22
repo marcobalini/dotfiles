@@ -348,7 +348,6 @@ def main():
     
     general_group = parser.add_argument_group("General options")
     default_base = find_default_base()
-    ensure_conan_default_profile(default_base)
     candidates_str = ", ".join(str(c) for c in BASE_DIR_CANDIDATES)
     general_group.add_argument("--base-dir", "-b", type=Path, default=default_base, help=f"Base directory for repositories (checked in order: {candidates_str}).")
     general_group.add_argument("--no-sync", "--skip-sync", action="store_true", help="Skip syncing (git clone/pull) repositories.")
@@ -393,6 +392,7 @@ def main():
         profile = f"prod/{profile}"
 
     base = args.base_dir.expanduser().resolve()
+    ensure_conan_default_profile(base)
     setup_environment(base)
 
     if not args.no_sync:

@@ -10,6 +10,28 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+# Candidate base directories searched in order; the first one that exists is used.
+# On non-Windows the Windows-specific paths are silently ignored.
+if sys.platform == "win32":
+    BASE_DIR_CANDIDATES = [
+        Path("D:/_"),
+        Path("C:/fctech/marco/_"),
+        Path("~/_").expanduser(),
+    ]
+else:
+    BASE_DIR_CANDIDATES = [
+        Path("~/_").expanduser(),
+    ]
+
+
+def find_default_base() -> Path:
+    """Return the first candidate base directory that already exists, or the first candidate as a fallback."""
+    for candidate in BASE_DIR_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return BASE_DIR_CANDIDATES[0]
+
+
 # Repository definitions: (name, git_url, conan_subpath, build_during_configure)
 # - conan_subpath: subpath containing Conan package (or None if repo is sync-only)
 # - build_during_configure: if True, run `conan build` instead of `conan build -c user.fc:configure_only=y`
@@ -325,9 +347,10 @@ def main():
     )
     
     general_group = parser.add_argument_group("General options")
-    default_base = Path("D:/_") if sys.platform == "win32" else Path("~/_").expanduser()
+    default_base = find_default_base()
     ensure_conan_default_profile(default_base)
-    general_group.add_argument("--base-dir", "-b", type=Path, default=default_base, help="Base directory for repositories (default: D:\\_ on Windows, ~/_ on Linux/macOS).")
+    candidates_str = ", ".join(str(c) for c in BASE_DIR_CANDIDATES)
+    general_group.add_argument("--base-dir", "-b", type=Path, default=default_base, help=f"Base directory for repositories (checked in order: {candidates_str}).")
     general_group.add_argument("--no-sync", "--skip-sync", action="store_true", help="Skip syncing (git clone/pull) repositories.")
     general_group.add_argument("--no-build", "--skip-build", action="store_true", help="Skip running conan build (full compilation) after configure.")
     general_group.add_argument("--msbuild", action="store_true", help="Run msbuild on the generated solution after configure (Windows only).")

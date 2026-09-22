@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+TARGET="${1:-}"
+KEY_FILE="${2:-}"
+
+if [ -z "$TARGET" ]; then
+    echo "Usage: $0 user@windows_host [path_to_pub_key]"
+    exit 1
+fi
+
+# Find default SSH key if not specified
+if [ -z "$KEY_FILE" ]; then
+    if [ -f "$HOME/.ssh/id_ed25519.pub" ]; then
+        KEY_FILE="$HOME/.ssh/id_ed25519.pub"
+    elif [ -f "$HOME/.ssh/id_rsa.pub" ]; then
+        KEY_FILE="$HOME/.ssh/id_rsa.pub"
+    else
+        echo "Error: No public key found in ~/.ssh/ (id_ed25519.pub or id_rsa.pub)."
+        exit 1
+    fi
+fi
+
+if [ ! -f "$KEY_FILE" ]; then
+    echo "Error: Key file '$KEY_FILE' does not exist."
+    exit 1
+fi
+
+# Encode the public key in base64 (no line wrapping)
+B64_KEY=$(base64 -w 0 "$KEY_FILE" 2>/dev/null || base64 "$KEY_FILE" | tr -d '\r\n')
+
+# Build the PowerShell script with B64_KEY baked in (no param passing needed),
+# then encode it as base64 UTF-16LE for powershell -EncodedCommand.
+# This sidesteps the bash -> ssh -> cmd.exe quoting nightmare entirely.
+PS_SCRIPT="
+\$ProgressPreference = 'SilentlyContinue'
+\$key = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${B64_KEY}')).Trim()
+
+# --- User authorized_keys ---
+\$userSsh  = Join-Path \$env:USERPROFILE '.ssh'
+\$userKeys = Join-Path \$userSsh 'authorized_keys'
+New-Item -Force -ItemType Directory \$userSsh | Out-Null
+\$existing = if (Test-Path \$userKeys) { Get-Content \$userKeys } else { @() }
+if (\$existing -notcontains \$key) { Add-Content -Path \$userKeys -Value \$key }
+icacls.exe \$userKeys /inheritance:r /grant:r \"\$(\$env:USERNAME):(F)\" /grant:r 'SYSTEM:(F)' | Out-Null
+
+# --- Administrator authorized_keys (only if OpenSSH data dir exists) ---
+\$adminDir  = 'C:\ProgramData\ssh'
+\$adminKeys = Join-Path \$adminDir 'administrators_authorized_keys'
+if (Test-Path \$adminDir) {
+    \$existing = if (Test-Path \$adminKeys) { Get-Content \$adminKeys } else { @() }
+    if (\$existing -notcontains \$key) { Add-Content -Path \$adminKeys -Value \$key }
+    icacls.exe \$adminKeys /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+}
+Write-Output 'Done.'
+"
+
+# Encode PS script as base64 UTF-16LE for -EncodedCommand
+B64_PS=$(printf '%s' "$PS_SCRIPT" | iconv -t UTF-16LE | base64 -w 0 2>/dev/null \
+         || printf '%s' "$PS_SCRIPT" | iconv -t UTF-16LE | base64 | tr -d '\r\n')
+
+echo "Installing $KEY_FILE on $TARGET..."
+
+ssh "$TARGET" "powershell -NonInteractive -EncodedCommand $B64_PS"
+
+echo "Successfully configured SSH key for $TARGET."

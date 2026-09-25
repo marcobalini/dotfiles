@@ -13,74 +13,93 @@ _cobenv_usage() {
   echo "  No argument  Clear the COBOL environment and remove ccc/run functions."
 }
 
-_cobenv_clear() {
-  if [[ -n "${COBOL_FC_LIB:-}" ]]; then
-    export PATH="${PATH#"$COBOL_FC_LIB:"}"
-    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH#"$COBOL_FC_LIB:"}"
+_cobenv_path_remove() {
+  local p=":${!1}:"
+  p="${p//:$2:/:}"
+  p="${p#:}"
+  p="${p%:}"
+  printf -v "$1" "%s" "$p"
+  if [[ -z "${!1}" && "$1" == "LD_LIBRARY_PATH" ]]; then
+    unset LD_LIBRARY_PATH
   fi
-  if [[ -n "${COBOL_HOME:-}" ]]; then
-    export PATH="${PATH#"$COBOL_HOME/bin:"}"
-    if [[ "${COBOL_RUNTIME:-}" == "is" ]]; then
-      export LD_LIBRARY_PATH="${LD_LIBRARY_PATH#"$COBOL_HOME/native/lib:"}"
+}
+
+_cobenv_clear() {
+  if [[ -n "${_cobenv_fc_lib:-}" ]]; then
+    _cobenv_path_remove PATH "$_cobenv_fc_lib"
+    _cobenv_path_remove LD_LIBRARY_PATH "$_cobenv_fc_lib"
+  fi
+  if [[ -n "${cobolHOME:-}" ]]; then
+    _cobenv_path_remove PATH "$cobolHOME/bin"
+    if [[ "${_cobenv_runtime:-}" == "is" ]]; then
+      _cobenv_path_remove LD_LIBRARY_PATH "$cobolHOME/native/lib"
     else
-      LD_LIBRARY_PATH="${LD_LIBRARY_PATH#"$COBOL_HOME/lib:"}"
-      export LD_LIBRARY_PATH="${LD_LIBRARY_PATH%":$COBOL_HOME/lib"}"
+      _cobenv_path_remove LD_LIBRARY_PATH "$cobolHOME/lib"
     fi
   fi
 
   unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
   unset COBDIR CLASSPATH COBCPY MFPLI_PRODUCT_DIR
-  unset COBOL_HOME cobolHOME COBOL_RUNTIME COBOL_FC_LIB ISCOBOL
+  unset cobolHOME JDKHOME ISCOBOL ISCOBOL_JDK_ROOT
+  unset _cobenv_runtime _cobenv_fc_lib
   unset -f ccc run 2>/dev/null
 }
 
 if [[ "$1" == "--help" || "$1" == "-h" ]]; then
   _cobenv_usage
-  unset -f _cobenv_usage _cobenv_clear
+  unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
   return 0
 fi
 
 if [[ -z "$1" ]]; then
   _cobenv_clear
-  unset -f _cobenv_usage _cobenv_clear
+  unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
   echo "COBOL environment and ccc/run functions have been unset."
   return 0
 fi
 
-if [[ -n "${COBOL_RUNTIME:-}" ]]; then
-  echo "Error: COBOL runtime '$COBOL_RUNTIME' is already active." >&2
-  echo "Run 'source $(basename "${BASH_SOURCE[0]}")' before selecting another runtime." >&2
-  unset -f _cobenv_usage _cobenv_clear
-  return 1
+case "$1" in
+  acu|is|mf)
+    ;;
+  *)
+    echo "Error: Unknown COBOL runtime '$1'. Expected 'acu', 'is', or 'mf'." >&2
+    _cobenv_usage >&2
+    unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
+    return 1
+    ;;
+esac
+
+if [[ -n "${_cobenv_runtime:-}" ]]; then
+  _cobenv_clear
 fi
 
 case "$1" in
   acu)
     mapfile -t _cobenv_candidates < <(printf '%s\n' /opt/AcuGT* | sort -V)
-    COBOL_HOME=""
-    for _cobenv_dir in "${_cobenv_candidates[@]}"; do
-      if [[ -x "$_cobenv_dir/bin/ccbl" && -x "$_cobenv_dir/bin/runcbl" ]]; then
-        COBOL_HOME="$_cobenv_dir"
+    _cobenv_dir=""
+    for _cobenv_candidate in "${_cobenv_candidates[@]}"; do
+      if [[ -x "$_cobenv_candidate/bin/ccbl" && -x "$_cobenv_candidate/bin/runcbl" ]]; then
+        _cobenv_dir="$_cobenv_candidate"
       fi
     done
-    if [[ -z "$COBOL_HOME" ]]; then
+    if [[ -z "$_cobenv_dir" ]]; then
       echo "Error: No ACUCOBOL-GT installation found under /opt/AcuGT*." >&2
-      unset _cobenv_candidates _cobenv_dir
-      unset -f _cobenv_usage _cobenv_clear
+      unset _cobenv_candidates _cobenv_candidate _cobenv_dir
+      unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
       return 1
     fi
 
-    export COBOL_HOME cobolHOME="$COBOL_HOME" COBOL_RUNTIME="acu"
+    _cobenv_runtime="acu"
     unset ACUCOBOL COBDIR
-    source "$COBOL_HOME/bin/acusetenv.sh" "$COBOL_HOME"
+    source "$_cobenv_dir/bin/acusetenv.sh" "$_cobenv_dir"
     if [[ -n "${fcHOME:-}" ]]; then
-      export COBOL_FC_LIB="$fcHOME/drivers/ctree.cobol/acucobol"
-      export PATH="$COBOL_FC_LIB:$PATH"
-      export LD_LIBRARY_PATH="$COBOL_FC_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      _cobenv_fc_lib="$fcHOME/drivers/ctree.cobol/acucobol"
+      export PATH="$_cobenv_fc_lib:$PATH"
+      export LD_LIBRARY_PATH="$_cobenv_fc_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
 
     ccc() {
-      "$COBOL_HOME/bin/ccbl" "$@"
+      "$cobolHOME/bin/ccbl" "$@"
     }
 
     run() {
@@ -95,36 +114,46 @@ case "$1" in
         shift 2
       fi
 
-      A_TERM=vt100 DEFAULT_HOST="$default_host" "$COBOL_HOME/bin/runcbl" "$@"
+      A_TERM=vt100 DEFAULT_HOST="$default_host" "$cobolHOME/bin/runcbl" "$@"
     }
     ;;
   is)
     mapfile -t _cobenv_candidates < <(printf '%s\n' /opt/veryant/isCOBOL_SDK* | sort -V)
-    COBOL_HOME=""
-    for _cobenv_dir in "${_cobenv_candidates[@]}"; do
-      if [[ -x "$_cobenv_dir/bin/iscc" && -x "$_cobenv_dir/bin/iscrun" ]]; then
-        COBOL_HOME="$_cobenv_dir"
+    _cobenv_dir=""
+    for _cobenv_candidate in "${_cobenv_candidates[@]}"; do
+      if [[ -x "$_cobenv_candidate/bin/iscc" && -x "$_cobenv_candidate/bin/iscrun" ]]; then
+        _cobenv_dir="$_cobenv_candidate"
       fi
     done
-    if [[ -z "$COBOL_HOME" ]]; then
+    if [[ -z "$_cobenv_dir" ]]; then
       echo "Error: No isCOBOL SDK found under /opt/veryant/isCOBOL_SDK*." >&2
-      unset _cobenv_candidates _cobenv_dir
-      unset -f _cobenv_usage _cobenv_clear
+      unset _cobenv_candidates _cobenv_candidate _cobenv_dir
+      unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
       return 1
     fi
 
-    export COBOL_HOME cobolHOME="$COBOL_HOME" COBOL_RUNTIME="is" ISCOBOL="$COBOL_HOME"
-    export PATH="$COBOL_HOME/bin:$PATH"
-    export LD_LIBRARY_PATH="$COBOL_HOME/native/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    _cobenv_runtime="is"
+    export PATH="$_cobenv_dir/bin:$PATH"
+    export LD_LIBRARY_PATH="$_cobenv_dir/native/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
+
+    _cobenv_javac="$(type -p javac 2>/dev/null || true)"
+    if [[ -n "$_cobenv_javac" ]]; then
+      _cobenv_javac="$(readlink -f "$_cobenv_javac" 2>/dev/null || echo "$_cobenv_javac")"
+      _cobenv_jdk_root="$(dirname "$(dirname "$_cobenv_javac")")"
+      unset _cobenv_javac
+    elif [[ -d "$HOME/_/java-sdk" ]]; then
+      _cobenv_jdk_root="$HOME/_/java-sdk"
+    fi
+
     if [[ -n "${fcHOME:-}" ]]; then
-      export COBOL_FC_LIB="$fcHOME/drivers/ctree.cobol/iscobol"
-      export PATH="$COBOL_FC_LIB:$PATH"
-      export LD_LIBRARY_PATH="$COBOL_FC_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      _cobenv_fc_lib="$fcHOME/drivers/ctree.cobol/iscobol"
+      export PATH="$_cobenv_fc_lib:$PATH"
+      export LD_LIBRARY_PATH="$_cobenv_fc_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
 
     ccc() {
-      "$COBOL_HOME/bin/iscc" "$@"
+      "$cobolHOME/bin/iscc" "$@"
     }
 
     run() {
@@ -152,47 +181,62 @@ case "$1" in
       if [[ -n "$handler_type" ]]; then
         set -- "-J-Discobol.file.index=$handler_type" "$@"
       fi
-      "$COBOL_HOME/bin/iscrun" "$@"
+      "$cobolHOME/bin/iscrun" "$@"
     }
     ;;
   mf)
-    COBOL_HOME="/opt/rocketsoftware/VisualCOBOL"
-    if [[ ! -x "$COBOL_HOME/bin/cob" || ! -x "$COBOL_HOME/bin/cobrun" ]]; then
-      echo "Error: Visual COBOL not found under $COBOL_HOME." >&2
-      unset COBOL_HOME cobolHOME
-      unset -f _cobenv_usage _cobenv_clear
+    _cobenv_dir="/opt/rocketsoftware/VisualCOBOL"
+    if [[ ! -x "$_cobenv_dir/bin/cob" || ! -x "$_cobenv_dir/bin/cobrun" ]]; then
+      echo "Error: Visual COBOL not found under $_cobenv_dir." >&2
+      unset _cobenv_dir
+      unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
       return 1
     fi
 
-    export COBOL_HOME cobolHOME="$COBOL_HOME" COBOL_RUNTIME="mf"
+    _cobenv_runtime="mf"
     unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
-    source "$COBOL_HOME/bin/cobsetenv" "$COBOL_HOME"
+    source "$_cobenv_dir/bin/cobsetenv" "$_cobenv_dir"
     if [[ -n "${fcHOME:-}" ]]; then
-      export COBOL_FC_LIB="$fcHOME/drivers/ctree.cobol/extfh"
-      export PATH="$COBOL_FC_LIB:$PATH"
-      export LD_LIBRARY_PATH="$COBOL_FC_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      _cobenv_fc_lib="$fcHOME/drivers/ctree.cobol/extfh"
+      export PATH="$_cobenv_fc_lib:$PATH"
+      export LD_LIBRARY_PATH="$_cobenv_fc_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
 
     ccc() {
-      "$COBOL_HOME/bin/cob" "$@"
+      "$cobolHOME/bin/cob" "$@"
     }
 
     run() {
-      "$COBOL_HOME/bin/cobrun" "$@"
+      "$cobolHOME/bin/cobrun" "$@"
     }
-    ;;
-  *)
-    echo "Error: Unknown COBOL runtime '$1'. Expected 'acu', 'is', or 'mf'." >&2
-    _cobenv_usage >&2
-    unset -f _cobenv_usage _cobenv_clear
-    return 1
     ;;
 esac
 
-unset _cobenv_candidates _cobenv_dir
-unset -f _cobenv_usage _cobenv_clear
+export cobolHOME="$_cobenv_dir"
+if [[ "$_cobenv_runtime" == "is" ]]; then
+  export ISCOBOL="$_cobenv_dir"
+  if [[ -n "${_cobenv_jdk_root:-}" ]]; then
+    export JDKHOME="$_cobenv_jdk_root" ISCOBOL_JDK_ROOT="$_cobenv_jdk_root"
+  fi
+fi
 
-echo "COBOL_RUNTIME set to $COBOL_RUNTIME"
-echo "COBOL_HOME set to $COBOL_HOME"
+unset _cobenv_candidates _cobenv_candidate _cobenv_dir _cobenv_javac _cobenv_jdk_root
+unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
+
 echo "cobolHOME set to $cobolHOME"
-echo "Vendor environment loaded. Functions 'ccc' and 'run' are ready."
+if [[ -n "${JDKHOME:-}" ]]; then
+  echo "JDKHOME set to $JDKHOME"
+fi
+if [[ -n "${ISCOBOL:-}" ]]; then
+  echo "ISCOBOL set to $ISCOBOL"
+fi
+if [[ -n "${ISCOBOL_JDK_ROOT:-}" ]]; then
+  echo "ISCOBOL_JDK_ROOT set to $ISCOBOL_JDK_ROOT"
+fi
+if [[ -n "${ACUCOBOL:-}" ]]; then
+  echo "ACUCOBOL set to $ACUCOBOL"
+fi
+if [[ -n "${COBDIR:-}" ]]; then
+  echo "COBDIR set to $COBDIR"
+fi
+echo "Environment loaded. Functions 'ccc' and 'run' are ready."

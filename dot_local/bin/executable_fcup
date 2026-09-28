@@ -1,6 +1,21 @@
 :<<"::BATCH"
 @echo off
 rem ---- Windows batch section ----
+setlocal
+if "%~1"=="/?" goto :usage
+if "%~1"=="-h" goto :usage
+if "%~1"=="--help" goto :usage
+
+set "TARGET_DIR=%~1"
+if "%TARGET_DIR%"=="" set "TARGET_DIR=."
+
+if not exist "%TARGET_DIR%" (
+  echo Error: Directory "%TARGET_DIR%" does not exist. >&2
+  exit /b 1
+)
+
+pushd "%TARGET_DIR%" || exit /b 1
+
 for /d %%d in (*) do (
   if exist "%%d\.git" (
     echo Syncing %%d...
@@ -10,12 +25,34 @@ for /d %%d in (*) do (
     svn update "%%d"
   )
 )
+
+popd
+endlocal
 goto :eof
+
+:usage
+echo Usage: fcup [base_directory]
+exit /b 0
 ::BATCH
 
 #!/usr/bin/env bash
 # ---- POSIX shell section ----
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  echo "Usage: $(basename "$0") [base_directory]"
+  exit 0
+fi
+
+TARGET_DIR="${1:-.}"
+
+if [ ! -d "$TARGET_DIR" ]; then
+  echo "Error: Directory '$TARGET_DIR' does not exist." >&2
+  exit 1
+fi
+
+cd "$TARGET_DIR" || exit 1
+
 for d in */; do
+  [ -d "$d" ] || continue
   if [ -d "$d/.git" ]; then
     (
       echo "Syncing $d..."

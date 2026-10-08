@@ -16,6 +16,20 @@ fi
 
 # If no argument, clean environment and functions
 if [ -z "$1" ]; then
+  # Remove drivers/ctree.btrv from PATH and LD_LIBRARY_PATH if it was added
+  if [ -n "$fcHOME" ]; then
+    local _btrv_dir="$fcHOME/drivers/ctree.btrv"
+    PATH=":$PATH:"
+    PATH="${PATH//:$_btrv_dir:/}"
+    PATH="${PATH#:}"
+    PATH="${PATH%:}"
+    export PATH
+    LD_LIBRARY_PATH=":${LD_LIBRARY_PATH}:"
+    LD_LIBRARY_PATH="${LD_LIBRARY_PATH//:$_btrv_dir:/}"
+    LD_LIBRARY_PATH="${LD_LIBRARY_PATH#:}"
+    LD_LIBRARY_PATH="${LD_LIBRARY_PATH%:}"
+    export LD_LIBRARY_PATH
+  fi
   unset fcHOME
   unset -f sta 2>/dev/null
   unset -f sto 2>/dev/null
@@ -24,6 +38,12 @@ if [ -z "$1" ]; then
 fi
 
 export fcHOME="$(cd "$1" && pwd)"
+
+# Add drivers/ctree.btrv to PATH and LD_LIBRARY_PATH if it exists
+if [ -d "$fcHOME/drivers/ctree.btrv" ]; then
+  export PATH="$fcHOME/drivers/ctree.btrv:$PATH"
+  export LD_LIBRARY_PATH="$fcHOME/drivers/ctree.btrv:$LD_LIBRARY_PATH"
+fi
 
 sta() {
   pushd $fcHOME/ > /dev/null
@@ -50,3 +70,6 @@ ctutil() {
 echo "fcHOME set to $fcHOME"
 echo "Function 'sta' defined. Run 'sta' to start faircom in background."
 echo "Function 'sto' defined. Run 'sto' to stop faircom automatically."
+if [ -d "$fcHOME/drivers/ctree.btrv" ]; then
+  echo "Added '$fcHOME/drivers/ctree.btrv' to PATH and LD_LIBRARY_PATH."
+fi

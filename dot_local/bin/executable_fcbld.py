@@ -8,6 +8,7 @@ import sys
 import tempfile
 import tarfile
 import zipfile
+import concurrent.futures
 from pathlib import Path
 
 # Candidate base directories searched in order; the first one that exists is used.
@@ -229,20 +230,34 @@ def run(cmd, cwd):
         sys.exit(result.returncode)
 
 
+def _sync_one_repo(base, name, url):
+    """Clone or pull a single repo; returns (name, repo_path)."""
+    repo_path = base / name
+    if repo_path.is_dir():
+        print(f"==> Pulling {name}", flush=True)
+        run(["git", "pull"], cwd=repo_path)
+    else:
+        print(f"==> Cloning {name}", flush=True)
+        run(["git", "clone", url, str(repo_path)], cwd=base)
+    return name, repo_path
+
+
 def sync_repos(base):
     base.mkdir(parents=True, exist_ok=True)
-    for name, url, _, _ in REPOS:
-        repo_path = base / name
-        if repo_path.is_dir():
-            print(f"==> Pulling {name}", flush=True)
-            run(["git", "pull"], cwd=repo_path)
-        else:
-            print(f"==> Cloning {name}", flush=True)
-            run(["git", "clone", url, str(repo_path)], cwd=base)
 
-        if name == "conan-utils":
-            run(["conan", "editable", "add", str(repo_path)], cwd=base)
+    # Run all git clone/pull operations in parallel.
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {
+            executor.submit(_sync_one_repo, base, name, url): name
+            for name, url, _, _ in REPOS
+        }
+        for future in concurrent.futures.as_completed(futures):
+            future.result()  # re-raise any exception from the worker
 
+    # Register editable packages after all repos are present.
+    conan_utils_path = base / "conan-utils"
+    if conan_utils_path.is_dir():
+        run(["conan", "editable", "add", str(conan_utils_path)], cwd=base)
     if (base / "kernel" / "make").is_dir():
         run(["conan", "editable", "add", str(base / "kernel" / "make")], cwd=base)
     if (base / "util" / "make").is_dir():

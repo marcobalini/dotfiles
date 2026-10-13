@@ -403,8 +403,6 @@ def main():
         args.build_type = "Debug"
 
     profile = args.profile
-    if profile and "/" not in profile and "\\" not in profile:
-        profile = f"prod/{profile}"
 
     base = args.base_dir.expanduser().resolve()
     ensure_conan_default_profile(base)

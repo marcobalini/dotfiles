@@ -279,26 +279,30 @@ def run_capture(cmd, cwd):
 
 
 def get_conan_opts(name, profile, args, base):
-    # Always resolve build/install dirs so user.fc:build_dir is guaranteed to be
-    # set in every conan invocation.  Explicit -c flags take priority over any
-    # value the profile may (or may not) define, preventing in-source CMake builds.
-    build_dir = str((args.build_dir or (Path.cwd() / "builds")).resolve())
-    install_dir = str((args.install_dir or (Path.cwd() / "packages")).resolve())
+    # Resolve build/install dirs for non-profile invocations, or when the user
+    # explicitly supplies them via CLI even alongside a profile.
+    build_dir = str(args.build_dir.resolve()) if args.build_dir else None
+    install_dir = str(args.install_dir.resolve()) if args.install_dir else None
 
     if profile:
-        return [
-            f"-pr:a={profile}",
-            "-c", f"user.fc:build_dir={build_dir}",
-            "-c", f"user.fc:install_dir={install_dir}",
-        ]
+        opts = [f"-pr:a={profile}"]
+        if build_dir:
+            opts += ["-c", f"user.fc:build_dir={build_dir}"]
+        if install_dir:
+            opts += ["-c", f"user.fc:install_dir={install_dir}"]
+        return opts
 
     unicode_val = str(args.unicode)
     icu_val = str(args.icu)
 
+    # Non-profile path: always pass build/install dirs, falling back to defaults.
+    effective_build_dir = build_dir or str((Path.cwd() / "build").resolve())
+    effective_install_dir = install_dir or str((Path.cwd() / "install").resolve())
+
     opts = [
         "-s", f"build_type={args.build_type}",
-        "-c", f"user.fc:build_dir={build_dir}",
-        "-c", f"user.fc:install_dir={install_dir}",
+        "-c", f"user.fc:build_dir={effective_build_dir}",
+        "-c", f"user.fc:install_dir={effective_install_dir}",
     ]
 
     if name == "kernel":

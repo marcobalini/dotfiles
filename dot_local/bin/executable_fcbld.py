@@ -355,9 +355,9 @@ def main():
     check_cmake()
     import argparse
     usage_text = (
-        "%(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] --profile PROFILE\n"
-        "       %(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] [--oem OEM]\n"
-        "              [--product PRODUCT] [--unicode {0,1,2}] [--icu {42,78}] [--build-type BUILD_TYPE]\n"
+        "%(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] [--profile] PROFILE\n"
+        "       %(prog)s [-b BASE_DIR] [--no-sync] [--no-build] [--msbuild] -p PRODUCT [--oem OEM]\n"
+        "              [--unicode {0,1,2}] [--icu {42,78}] [--build-type BUILD_TYPE]\n"
         "              [--build-dir BUILD_DIR] [--install-dir INSTALL_DIR]"
     )
     parser = argparse.ArgumentParser(
@@ -374,11 +374,13 @@ def main():
     general_group.add_argument("--msbuild", action="store_true", help="Run msbuild on the generated solution after configure (Windows only).")
 
     profile_group = parser.add_argument_group("Profile mode")
-    profile_group.add_argument("--profile", "-pr", default=None, help="Conan profile to use (e.g. prod/edge-debug).")
+    profile_group.add_argument("profile_name", nargs="?", default=None, metavar="PROFILE",
+                               help="Conan profile to use (positional shorthand for --profile/-pr).")
+    profile_group.add_argument("--profile", "-pr", default=None, help="Conan profile to use.")
 
-    direct_group = parser.add_argument_group("Direct build mode (mutually exclusive with --profile)")
+    direct_group = parser.add_argument_group("Direct build mode (mutually exclusive with profile)")
     direct_group.add_argument("--oem", default=None, help="OEM option (default: edge, or rtg when product is rtg).")
-    direct_group.add_argument("--product", "--product-type", "-p", default=None, help="Product type option (default: edge).")
+    direct_group.add_argument("--product", "--product-type", "-p", default=None, help="Product type (e.g. edge, rtg).")
     direct_group.add_argument("--unicode", type=int, choices=[0, 1, 2], default=None, metavar="{0,1,2}", help="Unicode build mode: 0=disabled, 1=enabled, 2=auto (default: 2).")
     direct_group.add_argument("--icu", type=int, choices=[42, 78], default=None, metavar="{42,78}", help="ICU version to use (default: 78 when --unicode=2, 42 when --unicode<=1).")
     direct_group.add_argument("--build-type", default=None, help="Build type (default: Debug).")
@@ -386,25 +388,37 @@ def main():
     direct_group.add_argument("--install-dir", type=Path, default=None, help="Install output directory (default: ./packages).")
     args = parser.parse_args()
 
+    # Merge positional profile name into --profile
+    if args.profile_name is not None:
+        if args.profile is not None:
+            parser.error("PROFILE positional and --profile/-pr cannot both be specified")
+        args.profile = args.profile_name
+
     direct_opts_specified = [
-        opt for opt in ["oem", "product", "unicode", "icu", "build_type", "build_dir", "install_dir"]
+        opt for opt in ["oem", "unicode", "icu", "build_type", "build_dir", "install_dir"]
         if getattr(args, opt) is not None
     ]
-    if args.profile and direct_opts_specified:
-        opt_names = ", ".join("--" + opt.replace("_", "-") for opt in direct_opts_specified)
-        parser.error(f"--profile (--profile/-pr) cannot be used together with direct build options: {opt_names}")
 
-    # Set default values when direct build options are used
-    if args.product is None:
-        args.product = "edge"
-    if args.oem is None:
-        args.oem = "rtg" if args.product.lower() == "rtg" else "edge"
-    if args.unicode is None:
-        args.unicode = 0
-    if args.icu is None:
-        args.icu = 78 if args.unicode == 2 else 42
-    if args.build_type is None:
-        args.build_type = "Debug"
+    if args.product is not None:
+        # Direct-build mode: triggered by -p / --product
+        if args.profile is not None:
+            parser.error("--profile/-pr cannot be used together with -p/--product")
+        # Apply defaults for direct-build mode
+        if args.oem is None:
+            args.oem = "rtg" if args.product.lower() == "rtg" else "edge"
+        if args.unicode is None:
+            args.unicode = 0
+        if args.icu is None:
+            args.icu = 78 if args.unicode == 2 else 42
+        if args.build_type is None:
+            args.build_type = "Debug"
+    else:
+        # Profile mode
+        if args.profile is None:
+            parser.error("a profile name (PROFILE / --profile / -pr) or -p/--product is required")
+        if direct_opts_specified:
+            opt_names = ", ".join("--" + opt.replace("_", "-") for opt in direct_opts_specified)
+            parser.error(f"--profile/-pr cannot be used together with direct build options: {opt_names}")
 
     profile = args.profile
 

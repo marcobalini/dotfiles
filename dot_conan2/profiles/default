@@ -1,0 +1,9 @@
+{% if platform.system() == "Windows" %}
+    {% set base_dir = "D:\\_" if os.path.exists("D:\\_") else os.getenv("USERPROFILE") + "\\_" %}
+    {% set target_profile = base_dir + "\\conan-profiles\\profiles\\os\\windows\\64bit\\vs2022\\Debug" %}
+{% else %}
+    {% set base_dir = os.getenv("HOME") + "/_" %}
+    {% set target_profile = base_dir + "/conan-profiles/profiles/os/linux/64bit/Debug" %}
+{% endif %}
+
+include({{ target_profile }})

@@ -1,0 +1,12 @@
+include(default)
+{% from "default" import base_dir with context %}
+
+[options]
+faircom_kernel/*:oem=rtg
+faircom_kernel/*:product_type=rtg
+faircom_kernel/*:unicode=0
+faircom_kernel/*:icu_version=78
+
+[conf]
+user.fc:build_dir={{ base_dir }}/out/rtg/build
+user.fc:install_dir={{ base_dir }}/out/rtg/install

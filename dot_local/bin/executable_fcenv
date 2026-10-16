@@ -115,9 +115,6 @@ sta() {
       "environment": [],
       "externalConsole": false,
       "MIMode": "gdb",
-      "sourceFileMap": {
-        "/proc/self/cwd": "$HOME/_"
-      },
       "setupCommands": [
         {
           "description": "Enable pretty-printing for gdb",

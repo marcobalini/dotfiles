@@ -46,7 +46,96 @@ if [ -d "$fcHOME/drivers/ctree.btrv" ]; then
 fi
 
 sta() {
-  pushd $fcHOME/ > /dev/null
+  local do_clean=0
+  local do_debug=0
+
+  for arg in "$@"; do
+    case "$arg" in
+      c) do_clean=1 ;;
+      d) do_debug=1 ;;
+      *) echo "sta: unknown parameter '$arg'" ;;
+    esac
+  done
+
+  if [ "$do_clean" -eq 1 ]; then
+    echo "Cleaning tranlogs/ ..."
+    rm -rf "$fcHOME/tranlogs/"*
+
+    echo "Cleaning data/ (keeping testdata/ and ctMonLayouts.json) ..."
+    find "$fcHOME/data/" -mindepth 1 -maxdepth 1 \
+      ! -name "testdata" \
+      ! -name "ctMonLayouts.json" \
+      -exec rm -rf {} +
+  fi
+
+  if [ "$do_debug" -eq 1 ]; then
+    local vscode_dir="$HOME/_/.vscode"
+    mkdir -p "$vscode_dir"
+    local launch_file="$vscode_dir/launch.json"
+
+    if [ -f "$launch_file" ] && command -v jq &>/dev/null; then
+      # Update existing file: upsert the "Debug faircom" configuration in-place
+      local tmp
+      tmp=$(mktemp)
+      jq --arg name    "Debug faircom ($fcHOME)" \
+         --arg program "$fcHOME/server/faircom" \
+         --arg cwd     "$fcHOME/server" \
+         --arg src     "$HOME/_" \
+         '
+         (.configurations // []) as $cfgs |
+         ([$cfgs[] | .name | startswith("Debug faircom")] | index(true)) as $idx |
+         if $idx != null then
+           .configurations[$idx] |= . + {name: $name, program: $program, cwd: $cwd,
+             sourceFileMap: {"/proc/self/cwd": $src}}
+         else
+           .configurations += [{
+             name: $name, type: "cppdbg", request: "launch",
+             program: $program, args: [], stopAtEntry: false,
+             cwd: $cwd, environment: [], externalConsole: false, MIMode: "gdb",
+             sourceFileMap: {"/proc/self/cwd": $src},
+             setupCommands: [{description: "Enable pretty-printing for gdb",
+               text: "-enable-pretty-printing", ignoreFailures: true}]
+           }]
+         end
+         ' "$launch_file" > "$tmp" && mv "$tmp" "$launch_file"
+    else
+      # Create fresh
+      cat > "$launch_file" <<EOF
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug faircom ($fcHOME)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "$fcHOME/server/faircom",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "$fcHOME/server",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "sourceFileMap": {
+        "/proc/self/cwd": "$HOME/_"
+      },
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
+EOF
+    fi
+    echo "Updated '$launch_file' → target: $fcHOME/server/faircom"
+    code "$HOME/_"
+    return 0
+  fi
+
+  pushd "$fcHOME/" > /dev/null
   cd "./server"
   ./faircom &
   popd > /dev/null

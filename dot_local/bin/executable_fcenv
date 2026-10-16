@@ -80,19 +80,16 @@ sta() {
       jq --arg name    "Debug faircom ($fcHOME)" \
          --arg program "$fcHOME/server/faircom" \
          --arg cwd     "$fcHOME/server" \
-         --arg src     "$HOME/_" \
          '
          (.configurations // []) as $cfgs |
          ([$cfgs[] | .name | startswith("Debug faircom")] | index(true)) as $idx |
          if $idx != null then
-           .configurations[$idx] |= . + {name: $name, program: $program, cwd: $cwd,
-             sourceFileMap: {"/proc/self/cwd": $src}}
+           .configurations[$idx] |= . + {name: $name, program: $program, cwd: $cwd}
          else
            .configurations += [{
              name: $name, type: "cppdbg", request: "launch",
              program: $program, args: [], stopAtEntry: false,
              cwd: $cwd, environment: [], externalConsole: false, MIMode: "gdb",
-             sourceFileMap: {"/proc/self/cwd": $src},
              setupCommands: [{description: "Enable pretty-printing for gdb",
                text: "-enable-pretty-printing", ignoreFailures: true}]
            }]

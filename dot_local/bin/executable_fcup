@@ -1,7 +1,7 @@
 :<<"::BATCH"
 @echo off
 rem ---- Windows batch section ----
-setlocal
+setlocal enabledelayedexpansion
 if "%~1"=="/?" goto :usage
 if "%~1"=="-h" goto :usage
 if "%~1"=="--help" goto :usage
@@ -19,7 +19,35 @@ pushd "%TARGET_DIR%" || exit /b 1
 for /d %%d in (*) do (
   if exist "%%d\.git" (
     echo Syncing %%d...
+    set "STASH_SHA="
+    git -C "%%d" diff --quiet --exit-code 2>nul
+    if errorlevel 1 (
+      echo   [%%d] Pending changes detected, stashing...
+      git -C "%%d" stash push -m "fcup auto-stash" && (
+        for /f %%s in ('git -C "%%d" rev-parse refs/stash 2^>nul') do set "STASH_SHA=%%s"
+      )
+    ) else (
+      git -C "%%d" diff --cached --quiet --exit-code 2>nul
+      if errorlevel 1 (
+        echo   [%%d] Pending changes detected, stashing...
+        git -C "%%d" stash push -m "fcup auto-stash" && (
+          for /f %%s in ('git -C "%%d" rev-parse refs/stash 2^>nul') do set "STASH_SHA=%%s"
+        )
+      )
+    )
     git -C "%%d" pull
+    if defined STASH_SHA (
+      echo   [%%d] Restoring stashed changes ^(!STASH_SHA:~0,8!...^)
+      set "STASH_REF="
+      for /f "tokens=1,2" %%a in ('git -C "%%d" stash list --format^="%%H %%gd" 2^>nul') do (
+        if "%%a"=="!STASH_SHA!" if not defined STASH_REF set "STASH_REF=%%b"
+      )
+      if defined STASH_REF (
+        git -C "%%d" stash pop "!STASH_REF!" || echo   [%%d] WARNING: stash pop failed ^(!STASH_REF!^). Resolve conflicts manually.
+      ) else (
+        echo   [%%d] WARNING: Could not locate stash !STASH_SHA!. Already applied?
+      )
+    )
   ) else if exist "%%d\.svn" (
     echo Syncing %%d...
     svn update "%%d"
@@ -51,13 +79,42 @@ fi
 
 cd "$TARGET_DIR" || exit 1
 
+sync_repo() {
+  local d="$1"
+  echo "Syncing $d..."
+
+  local stash_sha=""
+  if ! git -C "$d" diff --quiet --exit-code 2>/dev/null || \
+     ! git -C "$d" diff --cached --quiet --exit-code 2>/dev/null; then
+    echo "  [$d] Pending changes detected, stashing..."
+    if git -C "$d" stash push -m "fcup auto-stash"; then
+      # Capture SHA immediately so we can find it by identity, not by index,
+      # even if other stashes exist or are added concurrently.
+      stash_sha=$(git -C "$d" rev-parse refs/stash 2>/dev/null)
+    fi
+  fi
+
+  git -C "$d" pull
+
+  if [ -n "$stash_sha" ]; then
+    echo "  [$d] Restoring stashed changes (${stash_sha:0:8}...)..."
+    # Find our stash by SHA in case the index shifted (e.g. pre-existing stashes).
+    local stash_ref
+    stash_ref=$(git -C "$d" stash list --format="%H %gd" 2>/dev/null \
+      | awk -v sha="$stash_sha" '$1 == sha { print $2; exit }')
+    if [ -n "$stash_ref" ]; then
+      git -C "$d" stash pop "$stash_ref" || \
+        echo "  [$d] WARNING: stash pop failed ($stash_ref). Resolve conflicts manually."
+    else
+      echo "  [$d] WARNING: Could not locate stash $stash_sha. Already applied?"
+    fi
+  fi
+}
+
 for d in */; do
   [ -d "$d" ] || continue
   if [ -d "$d/.git" ]; then
-    (
-      echo "Syncing $d..."
-      git -C "$d" pull
-    ) &
+    sync_repo "$d" &
   elif [ -d "$d/.svn" ]; then
     (
       echo "Syncing $d..."

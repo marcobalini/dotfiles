@@ -229,13 +229,84 @@ def run(cmd, cwd):
         sys.exit(result.returncode)
 
 
+def git_pull_safe(repo_path, name):
+    """Pull a git repo, with automatic stash/restore on dirty-file conflicts.
+
+    Attempts a plain pull first. Only if git refuses with a
+    "would be overwritten by merge" error does it stash local changes,
+    retry the pull, then restore the stash. A uniquely-labelled stash
+    entry is used so pre-existing stash entries are never disturbed.
+    """
+    OVERWRITTEN_ERR = "would be overwritten by merge"
+
+    print(f"[{repo_path}] $ git pull", flush=True)
+    result = subprocess.run(["git", "pull"], cwd=repo_path, capture_output=True, text=True)
+
+    if result.stdout:
+        print(result.stdout, end="", flush=True)
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr, flush=True)
+
+    if result.returncode == 0:
+        return  # clean pull — nothing else to do
+
+    if OVERWRITTEN_ERR not in result.stderr:
+        # Unrelated failure — propagate as normal.
+        print(f"ERROR: command failed with exit code {result.returncode}", file=sys.stderr)
+        sys.exit(result.returncode)
+
+    # Dirty-file conflict: stash, retry, restore.
+    print("  (local changes conflict with pull — stashing and retrying)", flush=True)
+    stash_label = f"fcbld-autostash-{name}"
+    subprocess.run(
+        ["git", "stash", "push", "--include-untracked", "-m", stash_label],
+        cwd=repo_path,
+        check=True,
+    )
+
+    run(["git", "pull"], cwd=repo_path)  # fatal on failure as usual
+
+    # Locate our specific entry so we don't pop a pre-existing stash.
+    list_result = subprocess.run(
+        ["git", "stash", "list"], cwd=repo_path, capture_output=True, text=True
+    )
+    stash_ref = next(
+        (line.split(":")[0] for line in list_result.stdout.splitlines() if stash_label in line),
+        None,
+    )
+    if stash_ref is None:
+        print(
+            f"WARNING: could not find stash entry '{stash_label}' in {name}. "
+            "Check 'git stash list' manually.",
+            file=sys.stderr,
+        )
+        return
+
+    pop_result = subprocess.run(
+        ["git", "stash", "pop", stash_ref], cwd=repo_path, capture_output=True, text=True
+    )
+    if pop_result.stdout:
+        print(pop_result.stdout, end="", flush=True)
+    if pop_result.returncode == 0:
+        print("  (restored stashed changes)", flush=True)
+    else:
+        if pop_result.stderr:
+            print(pop_result.stderr, end="", file=sys.stderr, flush=True)
+        print(
+            f"WARNING: 'git stash pop {stash_ref}' had conflicts in {name}. "
+            f"Changes remain in the stash as '{stash_label}' — "
+            "run 'git stash list' to locate and resolve manually.",
+            file=sys.stderr,
+        )
+
+
 def sync_repos(base):
     base.mkdir(parents=True, exist_ok=True)
     for name, url, _, _ in REPOS:
         repo_path = base / name
         if repo_path.is_dir():
             print(f"==> Pulling {name}", flush=True)
-            run(["git", "pull"], cwd=repo_path)
+            git_pull_safe(repo_path, name)
         else:
             print(f"==> Cloning {name}", flush=True)
             run(["git", "clone", url, str(repo_path)], cwd=base)

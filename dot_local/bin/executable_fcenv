@@ -33,7 +33,11 @@ if [ -z "$1" ]; then
   unset fcHOME
   unset -f sta 2>/dev/null
   unset -f sto 2>/dev/null
-  echo "fcHOME, sta, and sto have been unset."
+  unset -f log 2>/dev/null
+  unset _fc_log_pid
+  unset _fc_server_pid
+  unset _fc_log_owned
+  echo "fcHOME, sta, sto, and log have been unset."
   return 0
 fi
 
@@ -48,11 +52,13 @@ fi
 sta() {
   local do_clean=0
   local do_debug=0
+  local do_log=0
 
   for arg in "$@"; do
     case "$arg" in
       c) do_clean=1 ;;
       d) do_debug=1 ;;
+      l) do_log=1 ;;
       *) echo "sta: unknown parameter '$arg'" ;;
     esac
   done
@@ -131,12 +137,44 @@ EOF
 
   pushd "$fcHOME/" > /dev/null
   cd "./server"
+  if [ "$do_log" -eq 1 ]; then
+    log && _fc_log_owned=1
+  fi
   ./faircom &
+  _fc_server_pid=$!
   popd > /dev/null
 }
 
 sto() {
   tool ctstop -auto
+  if [ -n "$_fc_log_owned" ] && [ -n "$_fc_log_pid" ] && kill -0 "$_fc_log_pid" 2>/dev/null; then
+    if [ -n "$_fc_server_pid" ]; then
+      echo "Waiting for faircom (PID $_fc_server_pid) to exit..."
+      while kill -0 "$_fc_server_pid" 2>/dev/null; do
+        sleep 0.5
+      done
+      unset _fc_server_pid
+    fi
+    kill "$_fc_log_pid"
+    echo "Stopped log tail (PID $_fc_log_pid)."
+    unset _fc_log_pid
+    unset _fc_log_owned
+  fi
+}
+
+log() {
+  if [ -n "$_fc_log_pid" ] && kill -0 "$_fc_log_pid" 2>/dev/null; then
+    echo "log: already tailing (PID $_fc_log_pid). Run 'kill $_fc_log_pid' to stop it first." >&2
+    return 1
+  fi
+  local logfile="$fcHOME/data/CTSTATUS.FCS"
+  if [ ! -f "$logfile" ]; then
+    echo "Log file not found: $logfile" >&2
+    return 1
+  fi
+  tail -f "$logfile" &
+  _fc_log_pid=$!
+  echo "Tailing '$logfile' in background (PID $_fc_log_pid). Run 'kill $_fc_log_pid' to stop."
 }
 
 tool() {
@@ -151,8 +189,9 @@ ctutil() {
 
 
 echo "fcHOME set to $fcHOME"
-echo "Function 'sta' defined. Run 'sta' to start faircom in background."
+echo "Function 'sta' defined. Run 'sta' to start faircom in background (opts: c=clean, d=debug, l=log)."
 echo "Function 'sto' defined. Run 'sto' to stop faircom automatically."
+echo "Function 'log' defined. Run 'log' to tail \$fcHOME/data/CTSTATUS.FCS in background."
 if [ -d "$fcHOME/drivers/ctree.btrv" ]; then
   echo "Added '$fcHOME/drivers/ctree.btrv' to PATH and LD_LIBRARY_PATH."
 fi

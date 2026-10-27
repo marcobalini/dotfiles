@@ -34,10 +34,11 @@ if [ -z "$1" ]; then
   unset -f sta 2>/dev/null
   unset -f sto 2>/dev/null
   unset -f log 2>/dev/null
+  unset -f migra 2>/dev/null
   unset _fc_log_pid
   unset _fc_server_pid
   unset _fc_log_owned
-  echo "fcHOME, sta, sto, and log have been unset."
+  echo "fcHOME, sta, sto, log, and migra have been unset."
   return 0
 fi
 
@@ -187,11 +188,33 @@ ctutil() {
   command ctutil "$@"
 }
 
+migra() {
+  if [ -z "${1:-}" ]; then
+    echo "Usage: migra <file_or_directory_path> [ctmigra arguments...]" >&2
+    return 1
+  fi
+  if [ -d "$1" ]; then
+    local source_file status=0
+    for source_file in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+      [[ -f "$source_file" && "$source_file" != *.idx ]] || continue
+      migra "$source_file" "${@:2}" || status=$?
+    done
+    return "$status"
+  fi
+  local destination="/tmp/$(basename -- "$1")"
+  if [ -d "$fcHOME/drivers/ctree.btrv" ]; then
+    ctmigra btrv -s libpsqlmif.so.8 -r "${@:2}" "$1" "$destination"
+  else
+    LD_PRELOAD=libcobrts64.so:libcobcrtn64.so:libcobmisc64.so \
+      ctmigra extfh -s cobmffh64.so -r "${@:2}" "$1" "$destination"
+  fi
+}
 
 echo "fcHOME set to $fcHOME"
 echo "Function 'sta' defined. Run 'sta' to start faircom in background (opts: c=clean, d=debug, l=log)."
 echo "Function 'sto' defined. Run 'sto' to stop faircom automatically."
 echo "Function 'log' defined. Run 'log' to tail \$fcHOME/data/CTSTATUS.FCS in background."
+echo "Function 'migra' defined. Run 'migra <file_or_directory_path> [ctmigra arguments...]' to migrate files to /tmp."
 if [ -d "$fcHOME/drivers/ctree.btrv" ]; then
   echo "Added '$fcHOME/drivers/ctree.btrv' to PATH and LD_LIBRARY_PATH."
 fi

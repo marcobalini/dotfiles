@@ -205,8 +205,21 @@ migra() {
   if [ -d "$fcHOME/drivers/ctree.btrv" ]; then
     ctmigra btrv -s libpsqlmif.so.8 -r "${@:2}" "$1" "$destination"
   else
-    LD_PRELOAD=libcobrts64.so:libcobcrtn64.so:libcobmisc64.so \
-      ctmigra extfh -s cobmffh64.so -r "${@:2}" "$1" "$destination"
+    local cobol_preload=libcobrts64.so:libcobcrtn64.so:libcobmisc64.so
+    local extfh_library=cobmffh64.so
+    local ctmigra_path ctmigra_info
+    if command -v file >/dev/null 2>&1; then
+      ctmigra_path=$(type -P ctmigra)
+      if [[ -n "$ctmigra_path" ]]; then
+        ctmigra_info=$(file -b -- "$ctmigra_path" 2>/dev/null)
+        if [[ "$ctmigra_info" == *'ELF 32-bit'* ]]; then
+          cobol_preload=libcobrts.so:libcobcrtn.so:libcobmisc.so
+          extfh_library=cobmffh.so
+        fi
+      fi
+    fi
+    LD_PRELOAD="$cobol_preload" \
+      ctmigra extfh -s "$extfh_library" -r "${@:2}" "$1" "$destination"
   fi
 }
 

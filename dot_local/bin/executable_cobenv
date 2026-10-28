@@ -1,13 +1,14 @@
 #!/bin/bash
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  echo "Error: Please source this script: 'source $(basename "$0") <acu|is|mf>'" >&2
+  echo "Error: Please source this script: 'source $(basename "$0") <acu|gnu|is|mf>'" >&2
   exit 1
 fi
 
 _cobenv_usage() {
-  echo "Usage: source $(basename "${BASH_SOURCE[0]}") <acu|is|mf>"
+  echo "Usage: source $(basename "${BASH_SOURCE[0]}") <acu|gnu|is|mf>"
   echo "  acu          Use the newest ACUCOBOL-GT installation under /opt/AcuGT*."
+  echo "  gnu          Use the system-wide GnuCOBOL installation (cobc/cobcrun)."
   echo "  is           Use the newest Veryant isCOBOL SDK under /opt/veryant/isCOBOL_SDK*."
   echo "  mf           Use Rocket Visual COBOL under /opt/rocketsoftware/VisualCOBOL."
   echo "  No argument  Clear the COBOL environment and remove ccc/run functions."
@@ -29,7 +30,7 @@ _cobenv_clear() {
     _cobenv_path_remove PATH "$_cobenv_fc_lib"
     _cobenv_path_remove LD_LIBRARY_PATH "$_cobenv_fc_lib"
   fi
-  if [[ -n "${cobolHOME:-}" ]]; then
+  if [[ -n "${cobolHOME:-}" && "${_cobenv_runtime:-}" != "gnu" ]]; then
     _cobenv_path_remove PATH "$cobolHOME/bin"
     if [[ "${_cobenv_runtime:-}" == "is" ]]; then
       _cobenv_path_remove LD_LIBRARY_PATH "$cobolHOME/native/lib"
@@ -59,10 +60,10 @@ if [[ -z "$1" ]]; then
 fi
 
 case "$1" in
-  acu|is|mf)
+  acu|gnu|is|mf)
     ;;
   *)
-    echo "Error: Unknown COBOL runtime '$1'. Expected 'acu', 'is', or 'mf'." >&2
+    echo "Error: Unknown COBOL runtime '$1'. Expected 'acu', 'gnu', 'is', or 'mf'." >&2
     _cobenv_usage >&2
     unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
     return 1
@@ -182,6 +183,52 @@ case "$1" in
         set -- "-J-Discobol.file.index=$handler_type" "$@"
       fi
       "$cobolHOME/bin/iscrun" "$@"
+    }
+    ;;
+  gnu)
+    _cobenv_cobc="$(type -p cobc 2>/dev/null || true)"
+    _cobenv_cobcrun="$(type -p cobcrun 2>/dev/null || true)"
+    if [[ -z "$_cobenv_cobc" || -z "$_cobenv_cobcrun" ]]; then
+      echo "Error: GnuCOBOL not found. Ensure 'cobc' and 'cobcrun' are on PATH." >&2
+      unset _cobenv_cobc _cobenv_cobcrun
+      unset -f _cobenv_usage _cobenv_clear _cobenv_path_remove
+      return 1
+    fi
+    unset _cobenv_cobc _cobenv_cobcrun
+
+    _cobenv_runtime="gnu"
+    _cobenv_dir="$(dirname "$(dirname "$(type -p cobc)")")"  # e.g. /usr
+    unset ACUCOBOL A_TERMCAP CBLMODE COPYPATH
+    if [[ -n "${fcHOME:-}" ]]; then
+      _cobenv_fc_lib="$fcHOME/drivers/ctree.cobol/extfh"
+      export PATH="$_cobenv_fc_lib:$PATH"
+      export LD_LIBRARY_PATH="$_cobenv_fc_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+
+    ccc() {
+      local _ccc_args=() _ccc_ctree=0
+      for _ccc_arg in "$@"; do
+        if [[ "$_ccc_arg" == "ctree" ]]; then
+          _ccc_ctree=1
+        else
+          _ccc_args+=("$_ccc_arg")
+        fi
+      done
+      unset _ccc_arg
+      if (( _ccc_ctree )); then
+        cobc -x -fcallfh=CTEXTFH "${_ccc_args[@]}" "$_cobenv_fc_lib/CTEXTFH.so"
+      else
+        cobc -x "${_ccc_args[@]}"
+      fi
+    }
+
+    run() {
+      local prog="$1"; shift
+      if [[ -x "./$prog" ]]; then
+        "./$prog" "$@"
+      else
+        "$prog" "$@"
+      fi
     }
     ;;
   mf)

@@ -181,7 +181,7 @@ log() {
 tool() {
   local exe="$1"
   shift
-  "$fcHOME/tools/$exe" "$@"
+  LD_LIBRARY_PATH="$fcHOME/tools${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$fcHOME/tools/$exe" "$@"
 }
 
 ctutil() {

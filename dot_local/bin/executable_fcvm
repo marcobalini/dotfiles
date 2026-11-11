@@ -791,7 +791,7 @@ $(if [ "$PKG_EXT" = "rpm" ]; then
             REPO_RELEASE="\\\$releasever"
         fi
         echo "sudo mkdir -p /etc/yum.repos.d/"
-        echo "sudo bash -c \"printf '[faircom-rpm]\nname=FairCom Internal RPM Repository\nbaseurl=http://vmftest.eu.faircom.com:8081/repository/faircom-rpm/el${REPO_RELEASE}/\\\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo\""
+        echo "sudo bash -c \"printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\\\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo\""
     fi
 elif [ "$PKG_EXT" = "deb" ]; then
     if [[ "$DISTRO" == "ubuntu-"* ]]; then

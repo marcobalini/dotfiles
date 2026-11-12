@@ -50,7 +50,7 @@ DEB_SUITE_LEGACY="${DEB_SUITE_LEGACY:-legacy}"
 
 KEYS_REPO_PATH="${KEYS_REPO_PATH:-keys}"
 KEYS_FILE_NAME="${KEYS_FILE_NAME:-faircom-packages.gpg.pub}"
-MAX_EL_RELEASE="${MAX_EL_RELEASE:-7}"  # highest elN bucket on the yum repo; bump as new ones ship
+MAX_EL_RELEASE="${MAX_EL_RELEASE:-8}"  # highest elN bucket on the yum repo; bump as new ones ship
 
 # --- USAGE MENU ---
 usage() {

@@ -59,7 +59,7 @@ usage() {
     echo "  -b           Build/Configure the VM from scratch (Prompts for password)"
     echo "  -s           Sync pkgs to existing VM (Requires restart)"
     echo "  -a <pkg>     Auto-install <pkg> (Restores, Syncs, Installs, and Exits)"
-    echo "  -d <dir>     Directory containing packages (default: current directory)"
+    echo "  -d <dir>     Directory containing packages (default: auto-detected from -a, or current directory)"
     echo "  -e           Enable internal faircom repo setup during VM build (Linux only)"
     echo "  -i <script>  Inject bash script to VM (no auto-execution, Linux only, stackable with -e)"
     echo "  -32          Build/test 32-bit VM (Linux only, sets architecture to i686)"
@@ -114,6 +114,7 @@ ENABLE_REPO_SETUP=false
 INJECT_SCRIPT=""
 AUTO_INSTALL_PKG=""
 ARCH="x86_64"
+PKGS_DIR_EXPLICIT=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -121,7 +122,7 @@ while [[ $# -gt 0 ]]; do
     -r) RESTORE_VM=true; shift ;;
     -s) SYNC_ONLY=true; shift ;;
     -a) AUTO_INSTALL_PKG="$2"; RESTORE_VM=true; SYNC_ONLY=true; shift 2 ;;
-    -d) PKGS_DIR="$2"; shift 2 ;;
+    -d) PKGS_DIR="$2"; PKGS_DIR_EXPLICIT=true; shift 2 ;;
     -e) ENABLE_REPO_SETUP=true; shift ;;
     -i) INJECT_SCRIPT="$2"; shift 2 ;;
     -32) ARCH="i686"; shift ;;
@@ -135,6 +136,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- POST-FLAG CONFIGURATION ---
+# Auto-detect package directory from -a if not explicitly specified with -d
+if [ "$PKGS_DIR_EXPLICIT" = false ] && [ -n "$AUTO_INSTALL_PKG" ]; then
+    if [[ "$AUTO_INSTALL_PKG" == *"/"* ]]; then
+        _pkg_dir=$(dirname "$AUTO_INSTALL_PKG")
+        if [ "$_pkg_dir" != "." ]; then
+            PKGS_DIR="$_pkg_dir"
+        fi
+    fi
+fi
+
 if [ ! -d "$PKGS_DIR" ]; then
     echo "ERROR: Package directory '$PKGS_DIR' does not exist."
     exit 1
@@ -304,6 +315,8 @@ if [ \$# -gt 0 ]; then
     for arg in "\$@"; do
         if [[ -f "/home/$USER_NAME/\$arg" ]] && [[ ! "\$arg" =~ / ]]; then
             PKGS+=("/home/$USER_NAME/\$arg")
+        elif [[ -f "/home/$USER_NAME/\$(basename \"\$arg\")" ]]; then
+            PKGS+=("/home/$USER_NAME/\$(basename \"\$arg\")")
         else
             PKGS+=("\$arg")
         fi
@@ -1020,7 +1033,11 @@ fi
 # --- AUTO-INSTALL OR INTERACTIVE SSH ---
 if [ -n "$AUTO_INSTALL_PKG" ]; then
     echo "--- Auto-installing $AUTO_INSTALL_PKG ---"
-    vm_ssh -t "$USER_NAME@$VM_IP" "/usr/local/bin/ipkg $AUTO_INSTALL_PKG"
+    AUTO_INSTALL_CMD=""
+    for _p in $AUTO_INSTALL_PKG; do
+        AUTO_INSTALL_CMD+="$(basename "$_p") "
+    done
+    vm_ssh -t "$USER_NAME@$VM_IP" "/usr/local/bin/ipkg ${AUTO_INSTALL_CMD% }"
 else
     if [ -n "$VM_IP" ]; then
         echo "--- Connecting to $VM_IP (VM will stop on exit) ---"

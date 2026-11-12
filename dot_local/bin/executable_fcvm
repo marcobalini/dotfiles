@@ -38,6 +38,7 @@ IP_WAIT_SLEEP_SECS="${IP_WAIT_SLEEP_SECS:-2}"
 
 # --- REPO CONFIG (override via environment variables) ---
 REPO_BASE_URL="${REPO_BASE_URL:-https://repo.faircom.com:4443/repository}"
+#REPO_BASE_URL="${REPO_BASE_URL:-http://vmftest.eu.faircom.com:8081/repository}"
 RPM_REPO_PATH="${RPM_REPO_PATH:-yum-test}"
 RPM_REPO_ID="${RPM_REPO_ID:-faircom}"
 RPM_REPO_NAME="${RPM_REPO_NAME:-FairCom Packages}"
@@ -267,7 +268,11 @@ fi
 # --- PACKAGE TYPE DETECTION ---
 if [[ "$DISTRO" == *"fedora"* ]] || [[ "$DISTRO" == *"centos"* ]] || [[ "$DISTRO" == *"rhel"* ]] || [[ "$DISTRO" == *"alma"* ]]; then
     PKG_EXT="rpm"
-    PKG_MANAGER="dnf"
+    if [[ "$DISTRO" == *"centos-7"* ]] || [[ "$DISTRO" == *"rhel-7"* ]] || [[ "$DISTRO" == *"centos-6"* ]] || [[ "$DISTRO" == *"rhel-6"* ]]; then
+        PKG_MANAGER="yum"
+    else
+        PKG_MANAGER="dnf"
+    fi
     PKGLS_CMD="rpm -qpl"
 elif [[ "$DISTRO" == *"ubuntu"* ]] || [[ "$DISTRO" == *"debian"* ]]; then
     PKG_EXT="deb"
@@ -300,8 +305,8 @@ capture_state() {
     sudo rm -f "\$target"
     local valid=""
     for d in $DIRS; do [ -d "\$d" ] && valid+="\$d "; done
-    if [ -n "\$valid" ]; then
-        sudo tree -a -p -u -g -f -i --noreport \$valid > "\$target"
+    if [ -n "\$valid" ] && command -v tree &>/dev/null; then
+        sudo tree -a -p -u -g -f -i --noreport \$valid > "\$target" 2>/dev/null || touch "\$target"
     else
         touch "\$target"
     fi
@@ -309,14 +314,14 @@ capture_state() {
 
 capture_state "/tmp/\$log_name.before"
 
-# Resolve local file paths for apt/dnf
+# Resolve local file paths for apt/dnf/yum
 PKGS=()
 if [ \$# -gt 0 ]; then
     for arg in "\$@"; do
         if [[ -f "/home/$USER_NAME/\$arg" ]] && [[ ! "\$arg" =~ / ]]; then
             PKGS+=("/home/$USER_NAME/\$arg")
-        elif [[ -f "/home/$USER_NAME/\$(basename \"\$arg\")" ]]; then
-            PKGS+=("/home/$USER_NAME/\$(basename \"\$arg\")")
+        elif [[ -f "/home/$USER_NAME/\$(basename "\$arg")" ]]; then
+            PKGS+=("/home/$USER_NAME/\$(basename "\$arg")")
         else
             PKGS+=("\$arg")
         fi
@@ -325,7 +330,18 @@ else
     PKGS=(/home/$USER_NAME/*.$PKG_EXT)
 fi
 
-sudo $PKG_MANAGER install -y "\${PKGS[@]}"
+# Detect package manager
+if command -v dnf &>/dev/null; then
+    _PM="dnf"
+elif command -v yum &>/dev/null; then
+    _PM="yum"
+elif command -v apt-get &>/dev/null; then
+    _PM="DEBIAN_FRONTEND=noninteractive apt-get"
+else
+    _PM="$PKG_MANAGER"
+fi
+
+sudo \$_PM install -y "\${PKGS[@]}"
 
 # --- SMART SERVICE WAIT ---
 echo "Waiting for service \$log_name to start..."
@@ -789,6 +805,8 @@ $(if [[ "$DISTRO" == *"centos-8"* ]] || [[ "$DISTRO" == *"centosstream-8"* ]]; t
     echo "    sudo sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo 2>/dev/null || true"
 fi)
     sudo dnf install -y tree vim sudo curl gnupg ca-certificates 2>/dev/null || true
+elif command -v yum &>/dev/null; then
+    sudo yum install -y tree vim sudo curl gnupg ca-certificates 2>/dev/null || true
 fi
 sudo systemctl enable ssh 2>/dev/null || sudo systemctl enable sshd 2>/dev/null || true
 sudo ssh-keygen -A 2>/dev/null || true
@@ -1013,6 +1031,11 @@ elif [ "$BACKEND" = "tart" ]; then
     start_vm_background
     wait_for_ip
     wait_for_ssh
+fi
+
+# --- SYNC HELPER SCRIPTS ---
+if { [ "$SYNC_ONLY" = true ] || [ "$RESTORE_VM" = true ] || [ -n "$AUTO_INSTALL_PKG" ]; } && [ "$PKG_EXT" != "unknown" ]; then
+    printf "%s\n" "$IPKG_CONTENT" | vm_ssh "$USER_NAME@$VM_IP" "sudo tee $IPKG_SCRIPT > /dev/null && sudo chmod +x $IPKG_SCRIPT" 2>/dev/null || true
 fi
 
 # --- SYNC PACKAGES ---

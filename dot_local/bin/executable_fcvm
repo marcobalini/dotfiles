@@ -37,8 +37,8 @@ IP_WAIT_RETRIES="${IP_WAIT_RETRIES:-20}"      # 20 * 2s = 40s
 IP_WAIT_SLEEP_SECS="${IP_WAIT_SLEEP_SECS:-2}"
 
 # --- REPO CONFIG (override via environment variables) ---
-REPO_BASE_URL="${REPO_BASE_URL:-https://repo.faircom.com:4443/repository}"
 #REPO_BASE_URL="${REPO_BASE_URL:-http://vmftest.eu.faircom.com:8081/repository}"
+REPO_BASE_URL="${REPO_BASE_URL:-https://repo.faircom.com:4443/repository}"
 RPM_REPO_PATH="${RPM_REPO_PATH:-yum-test}"
 RPM_REPO_ID="${RPM_REPO_ID:-faircom}"
 RPM_REPO_NAME="${RPM_REPO_NAME:-FairCom Packages}"

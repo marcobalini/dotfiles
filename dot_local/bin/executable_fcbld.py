@@ -229,44 +229,35 @@ def run(cmd, cwd):
         sys.exit(result.returncode)
 
 
-def git_pull_safe(repo_path, name):
-    """Pull a git repo, with automatic stash/restore on dirty-file conflicts.
-
-    Attempts a plain pull first. Only if git refuses with a
-    "would be overwritten by merge" error does it stash local changes,
-    retry the pull, then restore the stash. A uniquely-labelled stash
-    entry is used so pre-existing stash entries are never disturbed.
-    """
-    OVERWRITTEN_ERR = "would be overwritten by merge"
-
-    print(f"[{repo_path}] $ git pull", flush=True)
-    result = subprocess.run(["git", "pull"], cwd=repo_path, capture_output=True, text=True)
-
-    if result.stdout:
-        print(result.stdout, end="", flush=True)
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr, flush=True)
-
-    if result.returncode == 0:
-        return  # clean pull — nothing else to do
-
-    if OVERWRITTEN_ERR not in result.stderr:
-        # Unrelated failure — propagate as normal.
-        print(f"ERROR: command failed with exit code {result.returncode}", file=sys.stderr)
-        sys.exit(result.returncode)
-
-    # Dirty-file conflict: stash, retry, restore.
-    print("  (local changes conflict with pull — stashing and retrying)", flush=True)
-    stash_label = f"fcbld-autostash-{name}"
-    subprocess.run(
-        ["git", "stash", "push", "--include-untracked", "-m", stash_label],
+def get_default_branch(repo_path):
+    """Determine the default branch (e.g. main or master) for a git repository."""
+    res = subprocess.run(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         cwd=repo_path,
-        check=True,
+        capture_output=True,
+        text=True,
     )
+    if res.returncode == 0 and res.stdout.strip():
+        ref = res.stdout.strip()
+        if ref.startswith("origin/"):
+            return ref[len("origin/"):]
+        return ref
 
-    run(["git", "pull"], cwd=repo_path)  # fatal on failure as usual
+    for candidate in ("main", "master"):
+        for ref in (f"refs/heads/{candidate}", f"refs/remotes/origin/{candidate}"):
+            check = subprocess.run(
+                ["git", "rev-parse", "--verify", ref],
+                cwd=repo_path,
+                capture_output=True,
+            )
+            if check.returncode == 0:
+                return candidate
 
-    # Locate our specific entry so we don't pop a pre-existing stash.
+    return "main"
+
+
+def git_stash_pop_safe(repo_path, stash_label, name):
+    """Restore a stash entry identified by stash_label."""
     list_result = subprocess.run(
         ["git", "stash", "list"], cwd=repo_path, capture_output=True, text=True
     )
@@ -298,6 +289,94 @@ def git_pull_safe(repo_path, name):
             "run 'git stash list' to locate and resolve manually.",
             file=sys.stderr,
         )
+
+
+def git_checkout_safe(repo_path, branch, name):
+    """Switch to a branch, stashing/restoring local changes if they conflict."""
+    OVERWRITTEN_BY_CHECKOUT = "would be overwritten by checkout"
+    print(f"[{repo_path}] $ git checkout {branch}", flush=True)
+    res = subprocess.run(["git", "checkout", branch], cwd=repo_path, capture_output=True, text=True)
+    if res.stdout:
+        print(res.stdout, end="", flush=True)
+    if res.stderr:
+        print(res.stderr, end="", file=sys.stderr, flush=True)
+
+    if res.returncode == 0:
+        return
+
+    if OVERWRITTEN_BY_CHECKOUT in res.stderr:
+        print("  (local changes conflict with checkout — stashing and retrying)", flush=True)
+        stash_label = f"fcbld-autostash-checkout-{name}"
+        subprocess.run(
+            ["git", "stash", "push", "--include-untracked", "-m", stash_label],
+            cwd=repo_path,
+            check=True,
+        )
+        run(["git", "checkout", branch], cwd=repo_path)
+        git_stash_pop_safe(repo_path, stash_label, name)
+    else:
+        print(f"ERROR: command failed with exit code {res.returncode}", file=sys.stderr)
+        sys.exit(res.returncode)
+
+
+def git_pull_safe(repo_path, name, allow_switch_branch=True):
+    """Pull a git repo, with automatic stash/restore on dirty-file conflicts.
+
+    Attempts a plain pull first. If git reports that the remote tracking ref
+    was deleted, switches back to the default branch (e.g. main) and retries.
+    If git refuses with a "would be overwritten by merge" error, it stashes
+    local changes, retries the pull, then restores the stash. A uniquely-labelled
+    stash entry is used so pre-existing stash entries are never disturbed.
+    """
+    OVERWRITTEN_ERR = "would be overwritten by merge"
+    NO_REF_ERR = "no such ref was fetched"
+
+    print(f"[{repo_path}] $ git pull", flush=True)
+    result = subprocess.run(["git", "pull"], cwd=repo_path, capture_output=True, text=True)
+
+    if result.stdout:
+        print(result.stdout, end="", flush=True)
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr, flush=True)
+
+    if result.returncode == 0:
+        return  # clean pull — nothing else to do
+
+    if allow_switch_branch and (
+        NO_REF_ERR in result.stderr or "Your configuration specifies to merge with the ref" in result.stderr
+    ):
+        curr_res = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+        )
+        curr_branch = curr_res.stdout.strip()
+        default_branch = get_default_branch(repo_path)
+        if curr_branch != default_branch:
+            print(
+                f"  (remote tracking ref was deleted; switching back to '{default_branch}' and retrying pull)",
+                flush=True,
+            )
+            git_checkout_safe(repo_path, default_branch, name)
+            return git_pull_safe(repo_path, name, allow_switch_branch=False)
+
+    if OVERWRITTEN_ERR not in result.stderr:
+        # Unrelated failure — propagate as normal.
+        print(f"ERROR: command failed with exit code {result.returncode}", file=sys.stderr)
+        sys.exit(result.returncode)
+
+    # Dirty-file conflict: stash, retry, restore.
+    print("  (local changes conflict with pull — stashing and retrying)", flush=True)
+    stash_label = f"fcbld-autostash-{name}"
+    subprocess.run(
+        ["git", "stash", "push", "--include-untracked", "-m", stash_label],
+        cwd=repo_path,
+        check=True,
+    )
+
+    run(["git", "pull"], cwd=repo_path)  # fatal on failure as usual
+    git_stash_pop_safe(repo_path, stash_label, name)
 
 
 def sync_repos(base):

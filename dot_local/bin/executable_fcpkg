@@ -15,7 +15,7 @@ done
 
 [ -z "$1" ] && echo "usage: $0 [-u|--upload] [--rpm|--deb|--deb32] tarball [scripts_repo]" && exit 1
 TARBALL="$1"
-SCRIPTS_REPO="${2:-$HOME/_/utility}"
+SCRIPTS_REPO="${2:-$HOME/__/utility}"
 
 WORKDIR=$(realpath "${WORKDIR:-.}")
 

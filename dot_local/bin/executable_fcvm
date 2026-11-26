@@ -488,6 +488,166 @@ inject_packages() {
     fi
 }
 
+# Function to check if remote RPM packages in the repository are signed with the reachable key
+check_rpm_repo_signed() {
+    local base_url="$1"
+    local repo_path="$2"
+    local rel="$3"
+    local arch="$4"
+    local keys_path="$5"
+    local keys_file="$6"
+
+    [ "$arch" = "arm64" ] && arch="aarch64"
+    [ "$arch" = "i686" ] && arch="i386"
+
+    local key_url="${base_url}/${keys_path}/${keys_file}"
+    local repo_url="${base_url}/${repo_path}/el${rel}/${arch}"
+
+    # 1. Fetch reachable key content
+    local key_content
+    key_content=$(curl -fsSL --connect-timeout 10 -m 60 "$key_url" 2>/dev/null) || return 1
+    [ -z "$key_content" ] && return 1
+
+    # Extract Key IDs from public key
+    local key_ids=""
+    if command -v gpg &>/dev/null; then
+        key_ids=$(echo "$key_content" | GNUPGHOME=/tmp gpg --with-colons 2>/dev/null | awk -F: '$1=="pub" || $1=="sub" {print tolower($5)}')
+    fi
+    if [ -z "$key_ids" ] && command -v python3 &>/dev/null; then
+        key_ids=$(python3 -c '
+import sys, base64, hashlib
+raw_lines = sys.stdin.read().strip().splitlines()
+b64 = []
+in_b = False
+for l in raw_lines:
+    if "BEGIN PGP PUBLIC KEY BLOCK" in l: in_b = True; continue
+    if "END PGP PUBLIC KEY BLOCK" in l: break
+    if not in_b or ":" in l or not l.strip() or l.startswith("="): continue
+    b64.append(l.strip())
+try:
+    data = base64.b64decode("".join(b64))
+    idx = 0
+    while idx < len(data):
+        b = data[idx]; idx += 1
+        if not (b & 0x80): break
+        if b & 0x40:
+            tag = b & 0x3f; lb = data[idx]; idx += 1
+            if lb < 192: length = lb
+            elif lb < 224: length = ((lb - 192) << 8) + data[idx] + 192; idx += 1
+            else: length = (data[idx] << 24) | (data[idx+1] << 16) | (data[idx+2] << 8) | data[idx+3]; idx += 4
+        else:
+            tag = (b >> 2) & 0x0f; lt = b & 0x03
+            if lt == 0: length = data[idx]; idx += 1
+            elif lt == 1: length = (data[idx] << 8) | data[idx+1]; idx += 2
+            elif lt == 2: length = (data[idx] << 24) | (data[idx+1] << 16) | (data[idx+2] << 8) | data[idx+3]; idx += 4
+            else: length = len(data) - idx
+        pkt = data[idx:idx+length]; idx += length
+        if tag in (6, 14) and len(pkt) > 0 and pkt[0] == 4:
+            fp = hashlib.sha1(bytes([0x99, (length >> 8) & 0xff, length & 0xff]) + pkt).hexdigest().lower()
+            print(fp[-16:])
+except Exception: pass
+' <<< "$key_content" 2>/dev/null)
+    fi
+
+    [ -z "$key_ids" ] && return 1
+
+    # 2. Fetch repomd.xml from the RPM repo
+    local repomd_content
+    repomd_content=$(curl -fsSL --connect-timeout 10 -m 180 "${repo_url}/repodata/repomd.xml" 2>/dev/null) || return 1
+
+    # 3. Find primary.xml path (parse XML properly even if single-line)
+    local primary_href=""
+    if command -v python3 &>/dev/null; then
+        primary_href=$(python3 -c '
+import sys, xml.etree.ElementTree as ET
+try:
+    root = ET.fromstring(sys.stdin.read())
+    for elem in root.iter():
+        if elem.tag.endswith("data") and elem.get("type") == "primary":
+            for child in elem:
+                if child.tag.endswith("location"):
+                    print(child.get("href"))
+                    sys.exit(0)
+except Exception: pass
+' <<< "$repomd_content" 2>/dev/null)
+    fi
+    if [ -z "$primary_href" ]; then
+        primary_href=$(echo "$repomd_content" | grep -oP '<data type="primary">.*?<location href="\K[^"]+' 2>/dev/null)
+    fi
+
+    [ -z "$primary_href" ] && return 1
+
+    # 4. Extract first package href from primary.xml
+    local sample_rpm_href=""
+    if [[ "$primary_href" == *".zst" ]] && command -v zstd &>/dev/null; then
+        sample_rpm_href=$(curl -fsSL --connect-timeout 10 -m 60 "${repo_url}/${primary_href}" 2>/dev/null | zstd -dc 2>/dev/null | grep -oP '<location href="\K[^"]+\.rpm' 2>/dev/null | head -n1)
+    elif command -v python3 &>/dev/null; then
+        sample_rpm_href=$(curl -fsSL --connect-timeout 10 -m 60 "${repo_url}/${primary_href}" 2>/dev/null | gzip -dc 2>/dev/null | python3 -c '
+import sys, xml.etree.ElementTree as ET
+try:
+    for event, elem in ET.iterparse(sys.stdin, events=("end",)):
+        if elem.tag.endswith("package"):
+            for child in elem:
+                if child.tag.endswith("location"):
+                    print(child.get("href"))
+                    sys.exit(0)
+except Exception: pass
+' 2>/dev/null)
+    fi
+    if [ -z "$sample_rpm_href" ]; then
+        sample_rpm_href=$(curl -fsSL --connect-timeout 10 -m 60 "${repo_url}/${primary_href}" 2>/dev/null | gzip -dc 2>/dev/null | grep -oP '<location href="\K[^"]+\.rpm' 2>/dev/null | head -n1)
+    fi
+
+    [ -z "$sample_rpm_href" ] && return 1
+
+    # 5. Fetch first 64KB of the sample RPM using HTTP Range
+    local tmp_head="/tmp/sample_rpm_$$.head"
+    sample_rpm_href="${sample_rpm_href#/}"
+    curl -fsSL --connect-timeout 10 -m 60 -r 0-65535 "${repo_url}/${sample_rpm_href}" -o "$tmp_head" 2>/dev/null || { rm -f "$tmp_head"; return 1; }
+
+    # 6. Extract signing key ID from sample RPM header and compare
+    local matched=false
+    if command -v python3 &>/dev/null; then
+        matched=$(python3 -c '
+import sys, binascii
+kids = sys.argv[1].split()
+with open(sys.argv[2], "rb") as f: data = f.read()
+found = False
+for k in kids:
+    if len(k) == 16:
+        try:
+            if binascii.unhexlify(k) in data:
+                found = True
+                break
+        except Exception: pass
+print("true" if found else "false")
+' "$key_ids" "$tmp_head" 2>/dev/null)
+        [ "$matched" = "true" ] && matched=true || matched=false
+    fi
+
+    if [ "$matched" = false ] && command -v rpm &>/dev/null; then
+        local sig_info
+        sig_info=$(rpm -qp --qf '%{RSAHEADER:pgpsig}%{DSAHEADER:pgpsig}%{SIGGPG:pgpsig}%{SIGPGP:pgpsig}\n' "$tmp_head" 2>/dev/null)
+        if [ -n "$sig_info" ] && [[ "$sig_info" != *"(none)(none)(none)(none)"* ]]; then
+            local sample_kid
+            sample_kid=$(echo "$sig_info" | grep -oiE "Key ID [0-9a-f]+" | awk '{print tolower($NF)}')
+            if [ -n "$sample_kid" ]; then
+                for kid in $key_ids; do
+                    if [[ "$kid" == *"$sample_kid"* ]] || [[ "$sample_kid" == *"$kid"* ]]; then
+                        matched=true
+                        break
+                    fi
+                done
+            fi
+        fi
+    fi
+
+    rm -f "$tmp_head"
+
+    [ "$matched" = true ] && return 0
+    return 1
+}
+
 
 # --- LOGIC SELECTION ---
 
@@ -617,7 +777,19 @@ elif [ "$BUILD_VM" = true ]; then
             case "$ARCH" in i386|i486|i586|i686) REPO_RELEASE="7" ;; esac
             [ "$REPO_RELEASE" -gt "$MAX_EL_RELEASE" ] 2>/dev/null && REPO_RELEASE="$MAX_EL_RELEASE"
             if [ "$ENABLE_REPO_SETUP" = "true" ]; then
-                BUILDER_ARGS+=( "--run-command" "mkdir -p /etc/yum.repos.d/ && printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo" )
+                RPM_GPGCHECK=0
+                RPM_GPGKEY_ENTRY=""
+                RPM_IMPORT_CMD=""
+                echo "--- Checking if remote RPM packages in $RPM_REPO_ID are signed with FairCom key... ---"
+                if check_rpm_repo_signed "$REPO_BASE_URL" "$RPM_REPO_PATH" "$REPO_RELEASE" "$ARCH" "$KEYS_REPO_PATH" "$KEYS_FILE_NAME"; then
+                    echo "--- Remote RPM packages are SIGNED with FairCom key. Setting gpgcheck=1 ---"
+                    RPM_GPGCHECK=1
+                    RPM_GPGKEY_ENTRY="gpgkey=${REPO_BASE_URL}/${KEYS_REPO_PATH}/${KEYS_FILE_NAME}\n"
+                    RPM_IMPORT_CMD="rpm --import ${REPO_BASE_URL}/${KEYS_REPO_PATH}/${KEYS_FILE_NAME} 2>/dev/null || true; "
+                else
+                    echo "--- Remote RPM packages are UNSIGNED or key mismatch. Setting gpgcheck=0 ---"
+                fi
+                BUILDER_ARGS+=( "--run-command" "${RPM_IMPORT_CMD}mkdir -p /etc/yum.repos.d/ && printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\$basearch/\nenabled=1\ngpgcheck=${RPM_GPGCHECK}\n${RPM_GPGKEY_ENTRY}skip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo" )
             fi
         elif [ "$PKG_EXT" = "deb" ]; then
             if [[ "$DISTRO" == "ubuntu-"* ]]; then
@@ -775,6 +947,31 @@ elif [ "$BUILD_VM" = true ]; then
             fi
         fi
 
+        TART_RPM_GPGCHECK=0
+        TART_RPM_GPGKEY_ENTRY=""
+        TART_RPM_IMPORT=""
+        if [ "$ENABLE_REPO_SETUP" = "true" ] && [ "$PKG_EXT" = "rpm" ]; then
+            if [[ "$DISTRO" == *"fedora"* ]]; then
+                FVER="${DISTRO##*-}"; FVER="${DISTRO##*:}"
+                if [ "$FVER" -ge 40 ] 2>/dev/null; then TART_REPO_REL="10"; elif [ "$FVER" -ge 34 ] 2>/dev/null; then TART_REPO_REL="9"; elif [ "$FVER" -ge 28 ] 2>/dev/null; then TART_REPO_REL="8"; else TART_REPO_REL="7"; fi
+            else
+                DISTRO_VER=$(echo "$DISTRO" | grep -oP '\d+' 2>/dev/null || echo "$DISTRO" | grep -oE '[0-9]+' | head -n1)
+                if [ "${DISTRO_VER:-7}" -ge 10 ] 2>/dev/null; then TART_REPO_REL="10"; elif [ "${DISTRO_VER:-7}" -ge 9 ] 2>/dev/null; then TART_REPO_REL="9"; elif [ "${DISTRO_VER:-7}" -ge 8 ] 2>/dev/null; then TART_REPO_REL="8"; else TART_REPO_REL="7"; fi
+            fi
+            case "$ARCH" in i386|i486|i586|i686) TART_REPO_REL="7" ;; esac
+            [ "$TART_REPO_REL" -gt "$MAX_EL_RELEASE" ] 2>/dev/null && TART_REPO_REL="$MAX_EL_RELEASE"
+
+            echo "--- Checking if remote RPM packages in $RPM_REPO_ID are signed with FairCom key... ---"
+            if check_rpm_repo_signed "$REPO_BASE_URL" "$RPM_REPO_PATH" "$TART_REPO_REL" "$ARCH" "$KEYS_REPO_PATH" "$KEYS_FILE_NAME"; then
+                echo "--- Remote RPM packages are SIGNED with FairCom key. Setting gpgcheck=1 ---"
+                TART_RPM_GPGCHECK=1
+                TART_RPM_GPGKEY_ENTRY="gpgkey=${REPO_BASE_URL}/${KEYS_REPO_PATH}/${KEYS_FILE_NAME}\n"
+                TART_RPM_IMPORT="sudo rpm --import ${REPO_BASE_URL}/${KEYS_REPO_PATH}/${KEYS_FILE_NAME} 2>/dev/null || true"
+            else
+                echo "--- Remote RPM packages are UNSIGNED or key mismatch. Setting gpgcheck=0 ---"
+            fi
+        fi
+
         echo "--- Creating user $USER_NAME ---"
         $SSH_INIT bash -s <<REMOTE_SETUP
 set -e
@@ -822,8 +1019,9 @@ $(if [ "$PKG_EXT" = "rpm" ]; then
         else
             REPO_RELEASE="\\\$releasever"
         fi
+        [ -n "$TART_RPM_IMPORT" ] && echo "$TART_RPM_IMPORT"
         echo "sudo mkdir -p /etc/yum.repos.d/"
-        echo "sudo bash -c \"printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\\\$basearch/\nenabled=1\ngpgcheck=0\nskip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo\""
+        echo "sudo bash -c \"printf '[${RPM_REPO_ID}]\nname=${RPM_REPO_NAME}\nbaseurl=${REPO_BASE_URL}/${RPM_REPO_PATH}/el${REPO_RELEASE}/\\\$basearch/\nenabled=1\ngpgcheck=${TART_RPM_GPGCHECK}\n${TART_RPM_GPGKEY_ENTRY}skip_if_unavailable=1\n' > /etc/yum.repos.d/faircom.repo\""
     fi
 elif [ "$PKG_EXT" = "deb" ]; then
     if [[ "$DISTRO" == "ubuntu-"* ]]; then

@@ -35,6 +35,7 @@ if [ -z "$1" ]; then
   unset -f sto 2>/dev/null
   unset -f log 2>/dev/null
   unset -f migra 2>/dev/null
+  unset -f _fc_debug_launch 2>/dev/null
   unset _fc_log_pid
   unset _fc_server_pid
   unset _fc_log_owned
@@ -49,6 +50,70 @@ if [ -d "$fcHOME/drivers/ctree.btrv" ]; then
   export PATH="$fcHOME/drivers/ctree.btrv:$PATH"
   export LD_LIBRARY_PATH="$fcHOME/drivers/ctree.btrv:$LD_LIBRARY_PATH"
 fi
+
+# _fc_debug_launch <label> <program> <cwd> [<json-args>]
+#   Upserts a VSCode/gdb launch config named "Debug <label> ($fcHOME)" and
+#   opens the workspace. <json-args> is a JSON array string (default: []).
+_fc_debug_launch() {
+  local label="$1" program="$2" cwd="$3" args_json="${4:-[]}"
+  local launch_file="$HOME/_/.vscode/launch.json"
+  local name="Debug $label ($fcHOME)"
+
+  mkdir -p "$HOME/_/.vscode"
+
+  if [ -f "$launch_file" ] && command -v jq &>/dev/null; then
+    local tmp
+    tmp=$(mktemp)
+    jq --arg name    "$name" \
+       --arg program "$program" \
+       --arg cwd     "$cwd" \
+       --argjson args "$args_json" \
+       '
+       (.configurations // []) as $cfgs |
+       ([$cfgs[] | .name | startswith("Debug '"$label"'")] | index(true)) as $idx |
+       if $idx != null then
+         .configurations[$idx] |= . + {name: $name, program: $program, cwd: $cwd, args: $args}
+       else
+         .configurations += [{
+           name: $name, type: "cppdbg", request: "launch",
+           program: $program, args: $args, stopAtEntry: false,
+           cwd: $cwd, environment: [], externalConsole: false, MIMode: "gdb",
+           setupCommands: [{description: "Enable pretty-printing for gdb",
+             text: "-enable-pretty-printing", ignoreFailures: true}]
+         }]
+       end
+       ' "$launch_file" > "$tmp" && mv "$tmp" "$launch_file"
+  else
+    cat > "$launch_file" <<EOF
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "$name",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "$program",
+      "args": $args_json,
+      "stopAtEntry": false,
+      "cwd": "$cwd",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
+EOF
+  fi
+  echo "Updated '$launch_file' → target: $program"
+  code "$HOME/_"
+}
 
 sta() {
   local do_clean=0
@@ -76,63 +141,7 @@ sta() {
   fi
 
   if [ "$do_debug" -eq 1 ]; then
-    local vscode_dir="$HOME/_/.vscode"
-    mkdir -p "$vscode_dir"
-    local launch_file="$vscode_dir/launch.json"
-
-    if [ -f "$launch_file" ] && command -v jq &>/dev/null; then
-      # Update existing file: upsert the "Debug faircom" configuration in-place
-      local tmp
-      tmp=$(mktemp)
-      jq --arg name    "Debug faircom ($fcHOME)" \
-         --arg program "$fcHOME/server/faircom" \
-         --arg cwd     "$fcHOME/server" \
-         '
-         (.configurations // []) as $cfgs |
-         ([$cfgs[] | .name | startswith("Debug faircom")] | index(true)) as $idx |
-         if $idx != null then
-           .configurations[$idx] |= . + {name: $name, program: $program, cwd: $cwd}
-         else
-           .configurations += [{
-             name: $name, type: "cppdbg", request: "launch",
-             program: $program, args: [], stopAtEntry: false,
-             cwd: $cwd, environment: [], externalConsole: false, MIMode: "gdb",
-             setupCommands: [{description: "Enable pretty-printing for gdb",
-               text: "-enable-pretty-printing", ignoreFailures: true}]
-           }]
-         end
-         ' "$launch_file" > "$tmp" && mv "$tmp" "$launch_file"
-    else
-      # Create fresh
-      cat > "$launch_file" <<EOF
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Debug faircom ($fcHOME)",
-      "type": "cppdbg",
-      "request": "launch",
-      "program": "$fcHOME/server/faircom",
-      "args": [],
-      "stopAtEntry": false,
-      "cwd": "$fcHOME/server",
-      "environment": [],
-      "externalConsole": false,
-      "MIMode": "gdb",
-      "setupCommands": [
-        {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        }
-      ]
-    }
-  ]
-}
-EOF
-    fi
-    echo "Updated '$launch_file' → target: $fcHOME/server/faircom"
-    code "$HOME/_"
+    _fc_debug_launch "faircom" "$fcHOME/server/faircom" "$fcHOME/server"
     return 0
   fi
 
@@ -185,7 +194,30 @@ tool() {
 }
 
 ctutil() {
-  command ctutil "$@"
+  local do_debug=0
+  local -a passthrough=()
+
+  for arg in "$@"; do
+    case "$arg" in
+      d) do_debug=1 ;;
+      *) passthrough+=("$arg") ;;
+    esac
+  done
+
+  if [ "$do_debug" -eq 1 ]; then
+    local args_json
+    args_json=$(printf '%s\n' "${passthrough[@]}" | jq -R . | jq -s .)
+    local ctutil_bin
+    ctutil_bin=$(type -P ctutil)
+    if [[ -z "$ctutil_bin" ]]; then
+      echo "ctutil: binary not found on PATH (is cobenv sourced?)" >&2
+      return 1
+    fi
+    _fc_debug_launch "ctutil" "$ctutil_bin" "$fcHOME" "$args_json"
+    return 0
+  fi
+
+  command ctutil "${passthrough[@]}"
 }
 
 migra() {
@@ -225,6 +257,7 @@ migra() {
 
 echo "fcHOME set to $fcHOME"
 echo "Function 'sta' defined. Run 'sta' to start faircom in background (opts: c=clean, d=debug, l=log)."
+echo "Function 'ctutil' defined. Run 'ctutil [args...]' to invoke ctutil (opts: d=debug via VSCode/gdb)."
 echo "Function 'sto' defined. Run 'sto' to stop faircom automatically."
 echo "Function 'log' defined. Run 'log' to tail \$fcHOME/data/CTSTATUS.FCS in background."
 echo "Function 'migra' defined. Run 'migra <file_or_directory_path> [ctmigra arguments...]' to migrate files to /tmp."
